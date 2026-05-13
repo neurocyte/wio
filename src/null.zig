@@ -87,6 +87,10 @@ pub const Window = struct {
         _ = size;
     }
 
+    pub fn getRefreshRate(_: *Window) ?u32 {
+        return null;
+    }
+
     pub fn setParent(self: *Window, parent: usize) void {
         _ = self;
         _ = parent;

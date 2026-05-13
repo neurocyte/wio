@@ -298,6 +298,11 @@ pub const Window = struct {
         wioSetSize(self.window, size.width, size.height);
     }
 
+    pub fn getRefreshRate(_: *Window) ?u32 {
+        // TODO: query CGDisplayCopyDisplayMode + CGDisplayModeGetRefreshRate.
+        return null;
+    }
+
     pub fn setParent(self: *Window, parent: usize) void {
         _ = self;
         _ = parent;

@@ -99,6 +99,9 @@ pub var globals: struct {
     data_device_manager: ?*h.wl_data_device_manager = null,
     activation: ?*h.xdg_activation_v1 = null,
 
+    output_refresh: std.AutoArrayHashMapUnmanaged(*h.wl_output, u32) = .empty,
+    output_globals: std.AutoArrayHashMapUnmanaged(u32, *h.wl_output) = .empty,
+
     text_input: ?*h.zwp_text_input_v3 = null,
     cursor_shape_device: ?*h.wp_cursor_shape_device_v1 = null,
     relative_pointer: ?*h.zwp_relative_pointer_v1 = null,
@@ -262,6 +265,8 @@ pub fn deinit() void {
     globals.libxkbcommon.close();
 
     destroyProxies();
+    globals.output_globals.deinit(internal.allocator);
+    globals.output_refresh.deinit(internal.allocator);
     c.wl_display_disconnect(globals.display);
     globals.libwayland_client.close();
 
@@ -294,6 +299,7 @@ fn destroyProxies() void {
     if (globals.keyboard) |_| h.wl_keyboard_destroy(globals.keyboard);
     if (globals.seat) |_| h.wl_seat_destroy(globals.seat);
     if (globals.compositor) |_| h.wl_compositor_destroy(globals.compositor);
+    for (globals.output_globals.values()) |output| h.wl_output_destroy(output);
     h.wl_registry_destroy(globals.registry);
 }
 
@@ -321,6 +327,8 @@ pub const Window = struct {
     locked_pointer: ?*h.zwp_locked_pointer_v1 = null,
     text_options: ?wio.TextInputOptions = null,
     frame_callback: ?*h.wl_callback = null,
+    outputs: std.AutoArrayHashMapUnmanaged(*h.wl_output, void) = .empty,
+    last_refresh_rate: u32 = 0,
     draw_available_events: bool = false,
     inhibit_draw: bool = false,
     size: wio.Size,
@@ -343,6 +351,7 @@ pub const Window = struct {
         const surface = h.wl_compositor_create_surface(globals.compositor) orelse return error.Unexpected;
         errdefer h.wl_surface_destroy(surface);
         h.wl_surface_set_user_data(surface, self);
+        _ = h.wl_surface_add_listener(surface, &surface_listener, self);
 
         const frame = c.libdecor_decorate(globals.libdecor_context, surface, &libdecor_frame_interface, self) orelse return error.Unexpected;
         errdefer c.libdecor_frame_unref(frame);
@@ -374,7 +383,7 @@ pub const Window = struct {
         if (self.fractional_scale == null) internal.eventFn(self.event_fn_data, .{ .scale = 1 });
 
         if (!options.transparent) {
-            if (h.wl_compositor_create_region(compositor)) |region| {
+            if (h.wl_compositor_create_region(globals.compositor)) |region| {
                 h.wl_region_add(region, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
                 h.wl_surface_set_opaque_region(surface, region);
                 h.wl_region_destroy(region);
@@ -446,6 +455,7 @@ pub const Window = struct {
         h.wl_surface_destroy(self.surface);
         _ = c.wl_display_roundtrip(globals.display);
 
+        self.outputs.deinit(internal.allocator);
         internal.allocator.destroy(self);
     }
 
@@ -521,6 +531,21 @@ pub const Window = struct {
     pub fn setParent(self: *Window, parent: usize) void {
         _ = self;
         _ = parent;
+    }
+
+    pub fn getRefreshRate(self: *Window) ?u32 {
+        var rate: u32 = 0;
+        for (self.outputs.keys()) |output| if (globals.output_refresh.get(output)) |r| {
+            rate = @max(rate, r);
+        };
+        return if (rate > 0) rate else null;
+    }
+
+    fn pushRefreshRate(self: *Window) void {
+        const rate = self.getRefreshRate() orelse return;
+        if (rate == self.last_refresh_rate) return;
+        self.last_refresh_rate = rate;
+        internal.eventFn(self.event_fn_data, .{ .refresh_rate = rate });
     }
 
     pub fn setCursor(self: *Window, shape: wio.Cursor) void {
@@ -936,10 +961,62 @@ fn registryGlobal(_: ?*anyopaque, registry: ?*h.wl_registry, name: u32, interfac
         globals.primary_selection_device_manager = @ptrCast(h.wl_registry_bind(registry, name, &h.zwp_primary_selection_device_manager_v1_interface, @min(version, 1)));
     } else if (std.mem.eql(u8, interface, "xdg_activation_v1")) {
         globals.activation = @ptrCast(h.wl_registry_bind(registry, name, &h.xdg_activation_v1_interface, @min(version, 1)));
+    } else if (std.mem.eql(u8, interface, "wl_output")) {
+        const output: *h.wl_output = @ptrCast(h.wl_registry_bind(registry, name, &h.wl_output_interface, @min(version, 2)) orelse return);
+        globals.output_globals.put(internal.allocator, name, output) catch return;
+        _ = h.wl_output_add_listener(output, &output_listener, null);
     }
 }
 
-fn registryGlobalRemove(_: ?*anyopaque, _: ?*h.wl_registry, _: u32) callconv(.c) void {}
+fn registryGlobalRemove(_: ?*anyopaque, _: ?*h.wl_registry, name: u32) callconv(.c) void {
+    if (globals.output_globals.fetchSwapRemove(name)) |entry| {
+        _ = globals.output_refresh.swapRemove(entry.value);
+        h.wl_output_destroy(entry.value);
+    }
+}
+
+const output_listener = h.wl_output_listener{
+    .geometry = outputGeometry,
+    .mode = outputMode,
+    .done = outputDone,
+    .scale = outputScale,
+    .name = outputName,
+    .description = outputDescription,
+};
+
+fn outputGeometry(_: ?*anyopaque, _: ?*h.wl_output, _: i32, _: i32, _: i32, _: i32, _: i32, _: [*c]const u8, _: [*c]const u8, _: i32) callconv(.c) void {}
+fn outputMode(_: ?*anyopaque, output: ?*h.wl_output, flags: u32, _: i32, _: i32, refresh: i32) callconv(.c) void {
+    if ((flags & h.WL_OUTPUT_MODE_CURRENT) == 0) return;
+    if (refresh <= 0) return;
+    const out = output orelse return;
+    globals.output_refresh.put(internal.allocator, out, @intCast(refresh)) catch return;
+    // Recompute the rate for every window that is on this output.
+    var it = globals.windows.keyIterator();
+    while (it.next()) |window_ptr| {
+        const window = window_ptr.*;
+        if (window.outputs.contains(out)) window.pushRefreshRate();
+    }
+}
+fn outputDone(_: ?*anyopaque, _: ?*h.wl_output) callconv(.c) void {}
+fn outputScale(_: ?*anyopaque, _: ?*h.wl_output, _: i32) callconv(.c) void {}
+fn outputName(_: ?*anyopaque, _: ?*h.wl_output, _: [*c]const u8) callconv(.c) void {}
+fn outputDescription(_: ?*anyopaque, _: ?*h.wl_output, _: [*c]const u8) callconv(.c) void {}
+
+const surface_listener = h.wl_surface_listener{
+    .enter = surfaceEnter,
+    .leave = surfaceLeave,
+};
+
+fn surfaceEnter(data: ?*anyopaque, _: ?*h.wl_surface, output: ?*h.wl_output) callconv(.c) void {
+    const self: *Window = @ptrCast(@alignCast(data orelse return));
+    self.outputs.put(internal.allocator, output orelse return, {}) catch return;
+    self.pushRefreshRate();
+}
+fn surfaceLeave(data: ?*anyopaque, _: ?*h.wl_surface, output: ?*h.wl_output) callconv(.c) void {
+    const self: *Window = @ptrCast(@alignCast(data orelse return));
+    _ = self.outputs.swapRemove(output orelse return);
+    self.pushRefreshRate();
+}
 
 const seat_listener: h.wl_seat_listener = .{
     .capabilities = seatCapabilities,

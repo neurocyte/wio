@@ -309,6 +309,13 @@ pub const Window = union {
         }
     }
 
+    pub fn getRefreshRate(self: *Window) ?u32 {
+        return switch (active) {
+            .x11 => self.x11.getRefreshRate(),
+            .wayland => self.wayland.getRefreshRate(),
+        };
+    }
+
     pub fn setCursor(self: *Window, shape: wio.Cursor) void {
         switch (active) {
             .x11 => self.x11.setCursor(shape),

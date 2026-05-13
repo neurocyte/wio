@@ -204,6 +204,11 @@ pub const Window = struct {
         self.backend.setCursor(cursor);
     }
 
+    /// Current refresh rate (mHz) of the display the window is on, if known.
+    pub fn getRefreshRate(self: *Window) ?u32 {
+        return self.backend.getRefreshRate();
+    }
+
     pub fn requestAttention(self: *Window) void {
         self.backend.requestAttention();
     }
@@ -602,6 +607,11 @@ pub const Event = union(enum) {
     /// Depending on the platform, this may be equal to `size_physical / size_logical`,
     /// or a configured scale factor.
     scale: f32,
+    /// Current refresh rate (mHz) of the display the window is on.
+    ///
+    /// Sent on window creation and whenever it changes, such as when the window
+    /// is moved between monitors.
+    refresh_rate: u32,
 
     modifiers: Modifiers,
 

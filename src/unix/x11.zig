@@ -277,6 +277,7 @@ pub const Window = struct {
     relative_mouse: bool = false,
     draw_available_ns: u32 = 0,
     draw_available_thread: std.Thread = undefined,
+    last_refresh_rate: u32 = 0,
     position: wio.Position,
     size: wio.Size,
     warped: bool = false,
@@ -419,6 +420,7 @@ pub const Window = struct {
         internal.eventFn(self.event_fn_data, .{ .size_logical = size });
         internal.eventFn(self.event_fn_data, .{ .size_physical = size });
         internal.eventFn(self.event_fn_data, .draw);
+        self.pushRefreshRate();
 
         try globals.windows.put(internal.allocator, window, self);
         return self;
@@ -723,11 +725,24 @@ pub const Window = struct {
     }
 
     fn updateRefreshRate(self: *Window) void {
-        const rate = self.getRefreshRate() orelse 60;
+        const rate = self.getRefreshRateHz() orelse 60;
         self.draw_available_ns = @round(std.time.ns_per_s / rate);
     }
 
-    fn getRefreshRate(self: *Window) ?f32 {
+    fn pushRefreshRate(self: *Window) void {
+        const rate = self.getRefreshRate() orelse return;
+        if (rate == self.last_refresh_rate) return;
+        self.last_refresh_rate = rate;
+        internal.eventFn(self.event_fn_data, .{ .refresh_rate = rate });
+    }
+
+    pub fn getRefreshRate(self: *Window) ?u32 {
+        const rate = self.getRefreshRateHz() orelse return null;
+        if (!(rate > 0)) return null;
+        return @intFromFloat(@round(rate * 1000));
+    }
+
+    fn getRefreshRateHz(self: *Window) ?f32 {
         const resources: *h.XRRScreenResources = c.XRRGetScreenResources(globals.display, self.window) orelse return null;
         defer c.XRRFreeScreenResources(resources);
         var mode_id: ?c_ulong = null;
@@ -1110,6 +1125,7 @@ fn handle(event: *h.XEvent) void {
             if (window.draw_available_ns != 0) {
                 window.updateRefreshRate();
             }
+            window.pushRefreshRate();
 
             window.size = wio.Size{ .width = std.math.lossyCast(u16, event.xconfigure.width), .height = std.math.lossyCast(u16, event.xconfigure.height) };
             internal.eventFn(window.event_fn_data, .{ .size_logical = window.size });

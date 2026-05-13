@@ -280,6 +280,7 @@ pub const Window = struct {
     international3: bool = false,
     international4: bool = false,
     input: []u8 = &.{},
+    last_refresh_rate: u32 = 0,
     last_x: u16 = 0,
     last_y: u16 = 0,
     touch_bitmap: std.StaticBitSet(256) = .empty,
@@ -331,6 +332,7 @@ pub const Window = struct {
         const dpi: f32 = @floatFromInt(w.GetDpiForWindow(window));
         const scale = dpi / w.USER_DEFAULT_SCREEN_DPI;
         internal.eventFn(self.event_fn_data, .{ .scale = scale });
+        self.pushRefreshRate();
 
         if (options.scale) |base| {
             const scaled = clientToWindow(options.size.multiply(scale / base), style);
@@ -440,8 +442,8 @@ pub const Window = struct {
 
     pub fn enableDrawAvailableEvents(self: *Window) void {
         if (self.draw_available_ns == 0) {
-            log.warn("enableDrawAvailableEvents unimplemented for win32, falling back to 60 Hz", .{});
-            self.draw_available_ns = std.time.ns_per_s / 60;
+            const mhz = self.getRefreshRate() orelse 60_000;
+            self.draw_available_ns = @intCast(std.time.ns_per_s / (mhz / 1000));
             self.draw_available_thread = std.Thread.spawn(.{}, drawAvailableThread, .{self}) catch {
                 self.draw_available_ns = 0;
                 return;
@@ -516,6 +518,26 @@ pub const Window = struct {
 
     pub fn setParent(self: *Window, parent: usize) void {
         _ = w.SetParent(self.window, @ptrFromInt(parent));
+    }
+
+    pub fn getRefreshRate(self: *Window) ?u32 {
+        const monitor = w.MonitorFromWindow(self.window, w.MONITOR_DEFAULTTONEAREST) orelse return null;
+        var info: w.MONITORINFOEXW = undefined;
+        info.monitorInfo.cbSize = @sizeOf(w.MONITORINFOEXW);
+        if (w.GetMonitorInfoW(monitor, @ptrCast(&info)) == 0) return null;
+        var devmode: w.DEVMODEW = std.mem.zeroes(w.DEVMODEW);
+        devmode.dmSize = @sizeOf(w.DEVMODEW);
+        if (w.EnumDisplaySettingsW(&info.szDevice, w.ENUM_CURRENT_SETTINGS, &devmode) == 0) return null;
+        // dmDisplayFrequency is in whole Hz; multiply to mHz. 0 / 1 mean "default".
+        if (devmode.dmDisplayFrequency <= 1) return null;
+        return devmode.dmDisplayFrequency * 1000;
+    }
+
+    fn pushRefreshRate(self: *Window) void {
+        const rate = self.getRefreshRate() orelse return;
+        if (rate == self.last_refresh_rate) return;
+        self.last_refresh_rate = rate;
+        internal.eventFn(self.event_fn_data, .{ .refresh_rate = rate });
     }
 
     pub fn setCursor(self: *Window, shape: wio.Cursor) void {
@@ -1693,6 +1715,11 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
             const dpi: f32 = @floatFromInt(LOWORD(wParam));
             const scale = dpi / w.USER_DEFAULT_SCREEN_DPI;
             internal.eventFn(self.event_fn_data, .{ .scale = scale });
+            self.pushRefreshRate();
+            return 0;
+        },
+        w.WM_DISPLAYCHANGE => {
+            self.pushRefreshRate();
             return 0;
         },
         w.WM_CHAR => {

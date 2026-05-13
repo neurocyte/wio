@@ -150,6 +150,10 @@ pub const Window = struct {
 
     pub fn setParent(_: *Window, _: usize) void {}
 
+    pub fn getRefreshRate(_: *Window) ?u32 {
+        return null;
+    }
+
     pub fn setCursor(self: *Window, shape: wio.Cursor) void {
         js.setCursor(self.id, @intFromEnum(shape));
     }
