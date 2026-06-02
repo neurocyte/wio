@@ -169,6 +169,11 @@ pub const CreateWindowOptions = struct {
 
     drop_callback: ?Callback(DropData) = null,
 
+    /// Request a transparent/borderless window.
+    ///
+    /// Currently only functional on Wayland and Windows.
+    transparent: bool = false,
+
     gl_options: ?GlOptions = null,
 };
 
