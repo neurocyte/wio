@@ -122,6 +122,11 @@ pub const CreateWindowOptions = struct {
     /// Only functional on Windows and X11.
     parent: usize = 0,
 
+    /// Request a transparent/borderless window.
+    ///
+    /// Currently only functional on Wayland and Windows.
+    transparent: bool = false,
+
     gl_options: ?GlOptions = null,
 };
 

@@ -265,6 +265,9 @@ pub const Window = struct {
     draw_available_ns: u32 = 0,
     draw_available_thread: std.Thread = undefined,
     tracking: bool = false,
+    transparent: bool = false,
+    normal_style: u32 = w.WS_OVERLAPPEDWINDOW,
+    fullscreen: bool = false,
     rect: w.RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
     surrogate: u16 = 0,
     left_shift: bool = false,
@@ -293,10 +296,14 @@ pub const Window = struct {
     pub fn create(options: wio.CreateWindowOptions) !*Window {
         const title = try std.unicode.utf8ToUtf16LeAllocZ(internal.allocator, options.title);
         defer internal.allocator.free(title);
-        const style: u32 = w.WS_OVERLAPPEDWINDOW;
+        const style: u32 = if (options.transparent)
+            w.WS_POPUP | w.WS_THICKFRAME | w.WS_SYSMENU | w.WS_MINIMIZEBOX | w.WS_MAXIMIZEBOX
+        else
+            w.WS_OVERLAPPEDWINDOW;
+        const ex_style: u32 = if (options.transparent) w.WS_EX_NOREDIRECTIONBITMAP else 0;
         const size = clientToWindow(options.size, style);
         const window = w.CreateWindowExW(
-            0,
+            ex_style,
             class_name,
             title.ptr,
             style,
@@ -316,6 +323,8 @@ pub const Window = struct {
             .event_fn_data = options.event_fn_data,
             .window = window,
             .cursor = loadCursor(.default),
+            .transparent = options.transparent,
+            .normal_style = style,
         };
         _ = w.SetWindowLongPtrW(window, w.GWLP_USERDATA, @bitCast(@intFromPtr(self)));
 
@@ -456,8 +465,8 @@ pub const Window = struct {
     pub fn setMode(self: *Window, mode: wio.WindowMode) void {
         switch (mode) {
             .normal, .maximized => {
-                if (self.isFullscreen()) {
-                    _ = w.SetWindowLongPtrW(self.window, w.GWL_STYLE, w.WS_OVERLAPPEDWINDOW);
+                if (self.fullscreen) {
+                    _ = w.SetWindowLongPtrW(self.window, w.GWL_STYLE, @bitCast(@as(usize, self.normal_style)));
                     _ = w.SetWindowPos(
                         self.window,
                         null,
@@ -467,6 +476,7 @@ pub const Window = struct {
                         self.rect.bottom - self.rect.top,
                         w.SWP_FRAMECHANGED | w.SWP_NOZORDER,
                     );
+                    self.fullscreen = false;
                 }
             },
             .fullscreen => {
@@ -484,6 +494,7 @@ pub const Window = struct {
                     info.rcMonitor.bottom - info.rcMonitor.top,
                     w.SWP_FRAMECHANGED | w.SWP_NOZORDER,
                 );
+                self.fullscreen = true;
             },
         }
 
@@ -652,7 +663,7 @@ pub const Window = struct {
     }
 
     fn isFullscreen(self: *Window) bool {
-        return (w.GetWindowLongPtrW(self.window, w.GWL_STYLE) & w.WS_OVERLAPPEDWINDOW != w.WS_OVERLAPPEDWINDOW);
+        return self.fullscreen;
     }
 
     fn clipCursor(self: *Window) void {
@@ -1597,6 +1608,38 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
             } else {
                 return w.DefWindowProcW(window, msg, wParam, lParam);
             }
+        },
+        w.WM_NCCALCSIZE => {
+            if (!self.transparent or wParam == 0)
+                return w.DefWindowProcW(window, msg, wParam, lParam);
+            const params: *w.NCCALCSIZE_PARAMS = @ptrFromInt(@as(usize, @bitCast(lParam)));
+            const original_top = params.rgrc[0].top;
+            const result = w.DefWindowProcW(window, msg, wParam, lParam);
+            params.rgrc[0].top = original_top;
+            return result;
+        },
+        w.WM_NCHITTEST => {
+            if (!self.transparent) return w.DefWindowProcW(window, msg, wParam, lParam);
+            const screen_x: i32 = LOSHORT(lParam);
+            const screen_y: i32 = HISHORT(lParam);
+            var rect: w.RECT = undefined;
+            _ = w.GetWindowRect(window, &rect);
+            const border: i32 = 8;
+            const drag: i32 = 16;
+            const at_left = screen_x < rect.left + border;
+            const at_right = screen_x >= rect.right - border;
+            const at_top = screen_y < rect.top + border;
+            const at_bottom = screen_y >= rect.bottom - border;
+            if (at_top and at_left) return w.HTTOPLEFT;
+            if (at_top and at_right) return w.HTTOPRIGHT;
+            if (at_bottom and at_left) return w.HTBOTTOMLEFT;
+            if (at_bottom and at_right) return w.HTBOTTOMRIGHT;
+            if (at_left) return w.HTLEFT;
+            if (at_right) return w.HTRIGHT;
+            if (at_top) return w.HTTOP;
+            if (at_bottom) return w.HTBOTTOM;
+            if (screen_y < rect.top + drag) return w.HTCAPTION;
+            return w.HTCLIENT;
         },
         w.WM_CLOSE => {
             internal.eventFn(self.event_fn_data, .close);

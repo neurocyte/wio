@@ -373,6 +373,14 @@ pub const Window = struct {
         internal.eventFn(self.event_fn_data, .visible);
         if (self.fractional_scale == null) internal.eventFn(self.event_fn_data, .{ .scale = 1 });
 
+        if (!options.transparent) {
+            if (h.wl_compositor_create_region(compositor)) |region| {
+                h.wl_region_add(region, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+                h.wl_surface_set_opaque_region(surface, region);
+                h.wl_region_destroy(region);
+            }
+        }
+
         h.wl_surface_commit(surface);
         c.libdecor_frame_map(frame);
         while (!self.configured) {
