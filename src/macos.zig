@@ -32,8 +32,10 @@ extern fn wioDrawAvailable(*NSWindow) void;
 extern fn wioPresentFramebuffer(*NSWindow, c.CGContextRef) void;
 extern fn wioRelease(?*const anyopaque) void;
 extern fn wioGlChoosePixelFormat([*]const c.CGLPixelFormatAttribute) ?*NSOpenGLPixelFormat;
-extern fn wioGlCreateContext(?*NSOpenGLPixelFormat, ?*NSOpenGLContext) ?*NSOpenGLContext;
-extern fn wioGlMakeContextCurrent(*NSWindow, ?*NSOpenGLContext) void;
+extern fn wioGlCreateContext(*NSWindow, ?*NSOpenGLPixelFormat, ?*NSOpenGLContext) ?*NSOpenGLContext;
+extern fn wioGlMakeContextCurrent(?*NSOpenGLContext) void;
+extern fn wioGlLockContext(?*NSOpenGLContext) void;
+extern fn wioGlUnlockContext(?*NSOpenGLContext) void;
 extern fn wioGlSwapBuffers() void;
 extern fn wioGlSwapInterval(i32) void;
 extern fn wioGlReleaseCurrentContext() void;
@@ -367,17 +369,28 @@ pub const Window = struct {
         wioPresentFramebuffer(self.window, framebuffer.bitmap);
     }
 
+    /// Must be called on the main thread: attaching the context to the
+    /// window's view is an AppKit operation.
     pub fn glCreateContext(self: *Window, options: wio.GlCreateContextOptions) !GlContext {
         return .{
             .context = wioGlCreateContext(
+                self.window,
                 self.opengl.format,
                 if (options.share) |share| share.backend.context else null,
             ),
         };
     }
 
-    pub fn glMakeContextCurrent(self: *Window, context: GlContext) void {
-        wioGlMakeContextCurrent(self.window, context.context);
+    pub fn glMakeContextCurrent(_: *Window, context: GlContext) void {
+        wioGlMakeContextCurrent(context.context);
+    }
+
+    pub fn glLockContext(_: *Window, context: GlContext) void {
+        wioGlLockContext(context.context);
+    }
+
+    pub fn glUnlockContext(_: *Window, context: GlContext) void {
+        wioGlUnlockContext(context.context);
     }
 
     pub fn glSwapBuffers(_: *Window) void {

@@ -288,6 +288,10 @@ pub const Window = struct {
         c.OSMesaPixelStore(c.OSMESA_Y_UP, 0);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(self: *Window) void {
         if (std.meta.eql(gl_state.size, self.opengl.size)) {
             c.glFinish();

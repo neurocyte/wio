@@ -393,6 +393,20 @@ pub const Window = union {
         }
     }
 
+    pub fn glLockContext(self: *Window, context: GlContext) void {
+        switch (active) {
+            .x11 => self.x11.glLockContext(context.x11),
+            .wayland => self.wayland.glLockContext(context.wayland),
+        }
+    }
+
+    pub fn glUnlockContext(self: *Window, context: GlContext) void {
+        switch (active) {
+            .x11 => self.x11.glUnlockContext(context.x11),
+            .wayland => self.wayland.glUnlockContext(context.wayland),
+        }
+    }
+
     pub fn glSwapBuffers(self: *Window) void {
         switch (active) {
             .x11 => self.x11.glSwapBuffers(),

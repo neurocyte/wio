@@ -218,6 +218,10 @@ pub const Window = struct {
         gl.makeContextCurrent(self.id);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(_: *Window) void {}
 
     pub fn glSwapInterval(_: *Window, _: i32) void {}

@@ -651,6 +651,10 @@ pub const Window = struct {
         _ = w.wglMakeCurrent(self.opengl.dc, context.rc);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(self: *Window) void {
         _ = w.SwapBuffers(self.opengl.dc);
     }

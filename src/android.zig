@@ -314,6 +314,10 @@ pub const Window = struct {
         _ = c.eglMakeCurrent(egl.display, egl_surface, egl_surface, context.context);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(_: *Window) void {
         window_mutex.lockUncancelable(internal.io);
         defer window_mutex.unlock(internal.io);

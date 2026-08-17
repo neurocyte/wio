@@ -755,6 +755,10 @@ pub const Window = struct {
         _ = c.eglMakeCurrent(egl.display, self.egl.surface, self.egl.surface, context.context);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(self: *Window) void {
         _ = c.eglSwapBuffers(egl.display, self.egl.surface);
     }

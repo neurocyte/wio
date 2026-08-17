@@ -141,7 +141,12 @@ static void warpCursor(NSWindow *window) {
     wioSizePhysical(zig, framebuffer.size.width, framebuffer.size.height);
 
 #ifdef WIO_OPENGL
-    [context update];
+    if (context) {
+        CGLContextObj cgl = [context CGLContextObj];
+        CGLLockContext(cgl);
+        [context update];
+        CGLUnlockContext(cgl);
+    }
 #endif
 }
 
@@ -156,7 +161,12 @@ static void warpCursor(NSWindow *window) {
     wioSizePhysical(zig, framebuffer.size.width, framebuffer.size.height);
 
 #ifdef WIO_OPENGL
-    [context update];
+    if (context) {
+        CGLContextObj cgl = [context CGLContextObj];
+        CGLLockContext(cgl);
+        [context update];
+        CGLUnlockContext(cgl);
+    }
 #endif
 #ifdef WIO_VULKAN
     [[view layer] setContentsScale:scale];
@@ -637,17 +647,17 @@ void *wioGlChoosePixelFormat(const NSOpenGLPixelFormatAttribute *attributes) {
     return (void *)CFBridgingRetain(format);
 }
 
-void *wioGlCreateContext(NSOpenGLPixelFormat *format, NSOpenGLContext *share) {
+void *wioGlCreateContext(NSWindow *window, NSOpenGLPixelFormat *format, NSOpenGLContext *share) {
     NSOpenGLContext *context = [[NSOpenGLContext alloc] initWithFormat:format shareContext:share];
-    return (void *)CFBridgingRetain(context);
-}
-
-void wioGlMakeContextCurrent(NSWindow *window, NSOpenGLContext *context) {
     NSView *view = [window contentView];
     [view setWantsBestResolutionOpenGLSurface:YES];
     [context setView:view];
     WioWindowDelegate *delegate = [window delegate];
     [delegate setContext:context];
+    return (void *)CFBridgingRetain(context);
+}
+
+void wioGlMakeContextCurrent(NSOpenGLContext *context) {
     [context makeCurrentContext];
 }
 
@@ -661,6 +671,14 @@ void wioGlSwapInterval(int32_t interval) {
 
 void wioGlReleaseCurrentContext(void) {
     [NSOpenGLContext clearCurrentContext];
+}
+
+void wioGlLockContext(NSOpenGLContext *context) {
+    CGLLockContext([context CGLContextObj]);
+}
+
+void wioGlUnlockContext(NSOpenGLContext *context) {
+    CGLUnlockContext([context CGLContextObj]);
 }
 
 #endif
