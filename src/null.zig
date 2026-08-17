@@ -144,6 +144,10 @@ pub const Window = struct {
         _ = context;
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(self: *Window) void {
         _ = self;
     }

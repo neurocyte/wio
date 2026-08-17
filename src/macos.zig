@@ -35,8 +35,10 @@ extern fn wioSetClipboardText([*]const u8, usize) void;
 extern fn wioGetClipboardText(*usize) ?[*]u8;
 extern fn wioPresentFramebuffer(*NSWindow, c.CGContextRef, bool, u16, u16, u16, u16) void;
 extern fn wioRelease(?*const anyopaque) void;
-extern fn wioGlCreateContext([*]const c.CGLPixelFormatAttribute, ?*NSOpenGLContext) ?*NSOpenGLContext;
-extern fn wioGlMakeContextCurrent(*NSWindow, ?*NSOpenGLContext) void;
+extern fn wioGlCreateContext(*NSWindow, [*]const c.CGLPixelFormatAttribute, ?*NSOpenGLContext) ?*NSOpenGLContext;
+extern fn wioGlMakeContextCurrent(?*NSOpenGLContext) void;
+extern fn wioGlLockContext(?*NSOpenGLContext) void;
+extern fn wioGlUnlockContext(?*NSOpenGLContext) void;
 extern fn wioGlSwapBuffers() void;
 extern fn wioGlSwapInterval(i32) void;
 extern fn wioGlReleaseCurrentContext() void;
@@ -334,7 +336,9 @@ pub const Window = struct {
         }
     }
 
-    pub fn glCreateContext(_: *Window, options: wio.GlCreateContextOptions) !GlContext {
+    /// Must be called on the main thread: attaching the context to the
+    /// window's view is an AppKit operation.
+    pub fn glCreateContext(self: *Window, options: wio.GlCreateContextOptions) !GlContext {
         const profile: c.CGLPixelFormatAttribute = if (options.options.major_version <= 2)
             c.kCGLOGLPVersion_Legacy
         else if (options.options.major_version == 3 and (options.options.minor_version == 2 or options.options.minor_version == 3) and options.options.profile == .core)
@@ -346,6 +350,7 @@ pub const Window = struct {
 
         return .{
             .context = wioGlCreateContext(
+                self.window,
                 &.{
                     c.kCGLPFAOpenGLProfile, profile,
                     c.kCGLPFAColorSize,     options.options.red_bits + options.options.green_bits + options.options.blue_bits,
@@ -365,8 +370,16 @@ pub const Window = struct {
         };
     }
 
-    pub fn glMakeContextCurrent(self: *Window, context: GlContext) void {
-        wioGlMakeContextCurrent(self.window, context.context);
+    pub fn glMakeContextCurrent(_: *Window, context: GlContext) void {
+        wioGlMakeContextCurrent(context.context);
+    }
+
+    pub fn glLockContext(_: *Window, context: GlContext) void {
+        wioGlLockContext(context.context);
+    }
+
+    pub fn glUnlockContext(_: *Window, context: GlContext) void {
+        wioGlUnlockContext(context.context);
     }
 
     pub fn glSwapBuffers(_: *Window) void {

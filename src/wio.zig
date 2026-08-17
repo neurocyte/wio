@@ -293,6 +293,9 @@ pub const Window = struct {
     /// `options` must be the same as passed in `CreateWindowOptions.gl_options`.
     ///
     /// Must be destroyed before the window.
+    ///
+    /// On macOS this attaches the context to the window and must be called
+    /// from the main thread.
     pub fn glCreateContext(self: *Window, options: GlCreateContextOptions) !GlContext {
         assertFeature(.opengl);
         return .{ .backend = try self.backend.glCreateContext(options) };
@@ -302,6 +305,20 @@ pub const Window = struct {
     pub fn glMakeContextCurrent(self: *Window, context: GlContext) void {
         assertFeature(.opengl);
         self.backend.glMakeContextCurrent(context.backend);
+    }
+
+    /// Takes the context lock. On macOS the context is owned by the main
+    /// thread and rendering on another thread requires locking the
+    /// context. This is a no-op everywhere else.
+    pub fn glLockContext(self: *Window, context: GlContext) void {
+        assertFeature(.opengl);
+        self.backend.glLockContext(context.backend);
+    }
+
+    /// Release the lock taken by glLockContext.
+    pub fn glUnlockContext(self: *Window, context: GlContext) void {
+        assertFeature(.opengl);
+        self.backend.glUnlockContext(context.backend);
     }
 
     /// Must be called on the thread where the context is current.

@@ -691,6 +691,10 @@ pub const Window = struct {
         _ = c.glXMakeCurrent(globals.display, self.window, context.context);
     }
 
+    pub fn glLockContext(_: *Window, _: GlContext) void {}
+
+    pub fn glUnlockContext(_: *Window, _: GlContext) void {}
+
     pub fn glSwapBuffers(self: *Window) void {
         c.glXSwapBuffers(globals.display, self.window);
     }
