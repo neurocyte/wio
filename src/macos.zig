@@ -894,6 +894,10 @@ export fn wioSizePhysical(self: *Window, width: u16, height: u16) void {
     internal.sendEvent(self.event_fn_data, .draw);
 }
 
+export fn wioColorScheme(self: *Window, dark: u8) void {
+    internal.sendEvent(self.event_fn_data, .{ .color_scheme = if (dark != 0) .dark else .light });
+}
+
 export fn wioScale(self: *Window, scale: f32) void {
     internal.sendEvent(self.event_fn_data, .{ .scale = scale });
 }
