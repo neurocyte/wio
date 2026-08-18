@@ -281,6 +281,7 @@ pub const Window = struct {
     international4: bool = false,
     input: []u8 = &.{},
     last_refresh_rate: u32 = 0,
+    last_color_scheme: ?wio.ColorScheme = null,
     last_x: u16 = 0,
     last_y: u16 = 0,
     touch_bitmap: std.StaticBitSet(256) = .empty,
@@ -333,6 +334,7 @@ pub const Window = struct {
         const scale = dpi / w.USER_DEFAULT_SCREEN_DPI;
         internal.eventFn(self.event_fn_data, .{ .scale = scale });
         self.pushRefreshRate();
+        self.pushColorScheme();
 
         if (options.scale) |base| {
             const scaled = clientToWindow(options.size.multiply(scale / base), style);
@@ -538,6 +540,29 @@ pub const Window = struct {
         if (rate == self.last_refresh_rate) return;
         self.last_refresh_rate = rate;
         internal.eventFn(self.event_fn_data, .{ .refresh_rate = rate });
+    }
+
+    fn getColorScheme() wio.ColorScheme {
+        var value: u32 = 1;
+        var size: u32 = @sizeOf(u32);
+        const status = w.RegGetValueW(
+            w.HKEY_CURRENT_USER,
+            std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            std.unicode.utf8ToUtf16LeStringLiteral("AppsUseLightTheme"),
+            w.RRF_RT_DWORD,
+            null,
+            &value,
+            &size,
+        );
+        if (status != w.ERROR_SUCCESS) return .light;
+        return if (value == 0) .dark else .light;
+    }
+
+    fn pushColorScheme(self: *Window) void {
+        const scheme = getColorScheme();
+        if (self.last_color_scheme) |last| if (last == scheme) return;
+        self.last_color_scheme = scheme;
+        internal.eventFn(self.event_fn_data, .{ .color_scheme = scheme });
     }
 
     pub fn setCursor(self: *Window, shape: wio.Cursor) void {
@@ -1626,6 +1651,16 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 w.SC_SCREENSAVE, w.SC_MONITORPOWER => return if (self.isFullscreen()) 0 else w.DefWindowProcW(window, msg, wParam, lParam),
                 else => return w.DefWindowProcW(window, msg, wParam, lParam),
             }
+        },
+        w.WM_SETTINGCHANGE => {
+            const lparam: usize = @bitCast(lParam);
+            if (lparam % @alignOf(u16) != 0) return w.DefWindowProcW(window, msg, wParam, lParam);
+            const area: ?[*:0]const u16 = @ptrFromInt(lparam);
+            if (area) |ptr| {
+                if (std.mem.orderZ(u16, ptr, std.unicode.utf8ToUtf16LeStringLiteral("ImmersiveColorSet")) == .eq)
+                    self.pushColorScheme();
+            }
+            return w.DefWindowProcW(window, msg, wParam, lParam);
         },
         w.WM_SETCURSOR => {
             if (LOWORD(lParam) == w.HTCLIENT) {

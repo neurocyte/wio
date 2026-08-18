@@ -13,6 +13,9 @@ extern void wioSizeLogical(void *, UInt8, UInt16, UInt16);
 extern void wioSizePhysical(void *, UInt16, UInt16);
 extern void wioScale(void *, Float32);
 extern void wioModifiers(void *, UInt32);
+extern void wioColorScheme(void *, UInt8);
+
+void wioCancelWait(void);
 extern void wioChars(void *, const char *);
 extern void wioPreviewChars(void *, const char *, uint16_t, uint16_t);
 extern void wioPreviewReset(void *);
@@ -29,6 +32,13 @@ extern char *wioDupeClipboardText(const char *, size_t *);
 
 static NSString *string(const char *ptr, size_t len) {
     return [[NSString alloc] initWithBytes:ptr length:len encoding:NSUTF8StringEncoding];
+}
+
+// 0 = light, 1 = dark
+static UInt8 colorSchemeOfView(NSView *view) {
+    NSAppearanceName name = [[view effectiveAppearance]
+        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    return [name isEqualToString:NSAppearanceNameDarkAqua] ? 1 : 0;
 }
 
 static void warpCursor(NSWindow *window) {
@@ -294,6 +304,13 @@ static void warpCursor(NSWindow *window) {
     return 0;
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    wioColorScheme(zig, colorSchemeOfView(self));
+    // wake up wioWait
+    wioCancelWait();
+}
+
 - (void)updateTrackingAreas {
     [self removeTrackingArea:area];
     area = [[NSTrackingArea alloc]
@@ -511,6 +528,7 @@ void *wioCreateWindow(void *zig, uint16_t width, uint16_t height) {
 
     wioVisible(zig);
     wioScale(zig, [window backingScaleFactor]);
+    wioColorScheme(zig, colorSchemeOfView(view));
 
     NSRect rect = [view frame];
     wioSizeLogical(zig, 0, rect.size.width, rect.size.height);

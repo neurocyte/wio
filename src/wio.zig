@@ -632,6 +632,12 @@ pub const Event = union(enum) {
 
     modifiers: Modifiers,
 
+    /// System application light/dark mode.
+    ///
+    /// Sent on window creation and on change event.
+    /// Currently macOS and Windows only.
+    color_scheme: ColorScheme,
+
     /// Only sent when `Window.enableTextInput` has been called.
     char: u21,
     preview_reset: void,
@@ -694,6 +700,8 @@ pub const Modifiers = struct {
     alt: bool = false,
     gui: bool = false,
 };
+
+pub const ColorScheme = enum { light, dark };
 
 pub const TextInputOptions = struct {
     cursor: ?Position = null,
