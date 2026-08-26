@@ -26,6 +26,14 @@ pub fn sendEvent(data: ?*anyopaque, event: wio.Event) void {
     }
 }
 
+pub fn sendInput(data: ?*anyopaque, last: *wio.Modifiers, modifiers: wio.Modifiers, event: wio.Event) void {
+    if (!std.meta.eql(last.*, modifiers)) {
+        last.* = modifiers;
+        sendEvent(data, .{ .modifiers = modifiers });
+    }
+    sendEvent(data, event);
+}
+
 pub fn logUnexpected(name: []const u8) error{Unexpected} {
     log.err("{s} failed", .{name});
     return error.Unexpected;
