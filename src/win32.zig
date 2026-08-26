@@ -458,6 +458,7 @@ pub const Window = struct {
         switch (mode) {
             .normal, .maximized => {
                 if (self.fullscreen) {
+                    self.fullscreen = false;
                     _ = w.SetWindowLongPtrW(self.window, w.GWL_STYLE, @bitCast(@as(usize, self.normal_style)));
                     _ = w.SetWindowPos(
                         self.window,
@@ -468,7 +469,6 @@ pub const Window = struct {
                         self.rect.bottom - self.rect.top,
                         w.SWP_FRAMECHANGED | w.SWP_NOZORDER,
                     );
-                    self.fullscreen = false;
                 }
             },
             .fullscreen => {
@@ -476,6 +476,7 @@ pub const Window = struct {
                 var info: w.MONITORINFO = undefined;
                 info.cbSize = @sizeOf(w.MONITORINFO);
                 _ = w.GetMonitorInfoW(monitor, &info);
+                self.fullscreen = true;
                 _ = w.SetWindowLongPtrW(self.window, w.GWL_STYLE, @bitCast(@as(usize, w.WS_POPUP)));
                 _ = w.SetWindowPos(
                     self.window,
@@ -486,7 +487,6 @@ pub const Window = struct {
                     info.rcMonitor.bottom - info.rcMonitor.top,
                     w.SWP_FRAMECHANGED | w.SWP_NOZORDER,
                 );
-                self.fullscreen = true;
             },
         }
 
