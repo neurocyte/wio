@@ -126,6 +126,7 @@ pub var globals: struct {
     pointer_focus: ?*Window = null,
     gesture_focus: ?*Window = null,
     modifiers: wio.Modifiers = .{},
+    held_modifiers: wio.Modifiers = .{},
     last_serial: u32 = 0,
     pointer_enter_serial: u32 = 0,
     repeat_period: i32 = 0,
@@ -1105,9 +1106,37 @@ fn keyboardKeymap(_: ?*anyopaque, _: ?*h.wl_keyboard, _: h.wl_keyboard_keymap_fo
     globals.xkb_state = c.xkb_state_new(globals.keymap);
 }
 
-fn keyboardEnter(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, surface: ?*h.wl_surface, _: ?*h.wl_array) callconv(.c) void {
+fn keyboardEnter(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, surface: ?*h.wl_surface, keys: ?*h.wl_array) callconv(.c) void {
     globals.keyboard_focus = getWindow(surface);
-    if (globals.keyboard_focus) |window| internal.eventFn(window.event_fn_data, .focused);
+
+    globals.held_modifiers = .{};
+    if (keys) |array| if (array.data) |data| {
+        const pressed: [*]const u32 = @ptrCast(@alignCast(data));
+        for (pressed[0 .. array.size / @sizeOf(u32)]) |key| holdModifier(key, true);
+    };
+
+    if (globals.keyboard_focus) |window| {
+        setModifiers(window, globals.held_modifiers);
+        internal.eventFn(window.event_fn_data, .focused);
+    }
+}
+
+fn setModifiers(window: *Window, modifiers: wio.Modifiers) void {
+    globals.modifiers = modifiers;
+    if (!std.meta.eql(window.last_modifiers, modifiers)) {
+        window.last_modifiers = modifiers;
+        internal.eventFn(window.event_fn_data, .{ .modifiers = modifiers });
+    }
+}
+
+fn holdModifier(key: u32, down: bool) void {
+    switch (keyToButton(key) orelse return) {
+        .left_shift, .right_shift => globals.held_modifiers.shift = down,
+        .left_control, .right_control => globals.held_modifiers.control = down,
+        .left_alt, .right_alt => globals.held_modifiers.alt = down,
+        .left_gui, .right_gui => globals.held_modifiers.gui = down,
+        else => {},
+    }
 }
 
 fn keyboardLeave(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, surface: ?*h.wl_surface) callconv(.c) void {
@@ -1115,12 +1144,8 @@ fn keyboardLeave(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, surface: ?*h.wl_sur
         if (window.surface == surface) {
             globals.keyboard_focus = null;
             globals.repeat_key = 0;
-            globals.modifiers = .{};
-            if (!std.meta.eql(window.last_modifiers, globals.modifiers)) {
-                window.last_modifiers = globals.modifiers;
-                internal.eventFn(window.event_fn_data, .{ .modifiers = globals.modifiers });
-            }
             internal.eventFn(window.event_fn_data, .unfocused);
+            setModifiers(window, .{});
         }
     }
     if (globals.compose_state) |_| c.xkb_compose_state_reset(globals.compose_state);
@@ -1128,6 +1153,7 @@ fn keyboardLeave(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, surface: ?*h.wl_sur
 
 fn keyboardKey(_: ?*anyopaque, _: ?*h.wl_keyboard, serial: u32, _: u32, key: u32, state: h.wl_keyboard_key_state) callconv(.c) void {
     globals.last_serial = serial;
+    holdModifier(key, state == h.WL_KEYBOARD_KEY_STATE_PRESSED);
     if (globals.keyboard_focus) |window| {
         if (state == h.WL_KEYBOARD_KEY_STATE_PRESSED) {
             window.pushKeyEvent(key, .button_press);
@@ -1150,15 +1176,12 @@ fn keyboardModifiers(_: ?*anyopaque, _: ?*h.wl_keyboard, _: u32, mods_depressed:
     if (globals.keyboard_focus) |window| {
         const mods = mods_depressed | mods_latched | mods_locked;
         globals.modifiers = .{
-            .control = (mods & (1 << 2) != 0),
-            .shift = (mods & (1 << 0) != 0),
-            .alt = (mods & (1 << 3) != 0),
-            .gui = (mods & (1 << 6) != 0),
+            .control = (mods & (1 << 2) != 0) or globals.held_modifiers.control,
+            .shift = (mods & (1 << 0) != 0) or globals.held_modifiers.shift,
+            .alt = (mods & (1 << 3) != 0) or globals.held_modifiers.alt,
+            .gui = (mods & (1 << 6) != 0) or globals.held_modifiers.gui,
         };
-        if (!std.meta.eql(window.last_modifiers, globals.modifiers)) {
-            window.last_modifiers = globals.modifiers;
-            internal.eventFn(window.event_fn_data, .{ .modifiers = globals.modifiers });
-        }
+        setModifiers(window, globals.modifiers);
     }
 
     _ = c.xkb_state_update_mask(globals.xkb_state, mods_depressed, mods_latched, mods_locked, 0, 0, 0);
