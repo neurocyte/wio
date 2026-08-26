@@ -84,15 +84,15 @@ fn eventFn(data: ?*anyopaque, event: wio.Event) void {
         .position => |position| std.log.info("position ({},{})", .{ position.x, position.y }),
         .size_logical, .size_physical => |size| std.log.info("{s} {}x{}", .{ @tagName(event), size.width, size.height }),
         .scale => |scale| std.log.info("scale {d}", .{scale}),
-        .modifiers => |modifiers| std.log.info("modifiers: {s}{s}{s}{s}", .{ if (modifiers.control) "control " else "", if (modifiers.shift) "shift " else "", if (modifiers.alt) "alt " else "", if (modifiers.gui) "gui " else "" }),
+        .modifiers => |modifiers| std.log.info("modifiers: {s}", .{modifierString(modifiers)}),
         .char, .preview_char => |char| std.log.info("{s}: {u}", .{ @tagName(event), char }),
         .preview_cursor => |active| std.log.info("preview_cursor {}..{}", .{ active[0], active[1] }),
-        .button_press => |button| std.log.info("+{s}", .{@tagName(button)}),
-        .button_repeat => |button| std.log.info("*{s}", .{@tagName(button)}),
-        .button_release => |button| std.log.info("-{s}", .{@tagName(button)}),
-        .mouse => |mouse| std.log.info("({},{})", .{ mouse.x, mouse.y }),
-        .mouse_relative => |mouse| std.log.info("{},{}", .{ mouse.x, mouse.y }),
-        .scroll_vertical, .scroll_horizontal => |value| std.log.info("{s} {d}", .{ @tagName(event), value }),
+        .button_press => |button| std.log.info("+{s} {s}", .{ @tagName(button.button), modifierString(button.modifiers) }),
+        .button_repeat => |button| std.log.info("*{s} {s}", .{ @tagName(button.button), modifierString(button.modifiers) }),
+        .button_release => |button| std.log.info("-{s} {s}", .{ @tagName(button.button), modifierString(button.modifiers) }),
+        .mouse => |mouse| std.log.info("({},{}) {s}", .{ mouse.position.x, mouse.position.y, modifierString(mouse.modifiers) }),
+        .mouse_relative => |mouse| std.log.info("{},{} {s}", .{ mouse.position.x, mouse.position.y, modifierString(mouse.modifiers) }),
+        .scroll_vertical, .scroll_horizontal => |scroll| std.log.info("{s} {d} {s}", .{ @tagName(event), scroll.delta, modifierString(scroll.modifiers) }),
         .touch => |touch| std.log.info("touch {}: ({},{})", .{ touch.id, touch.x, touch.y }),
         .touch_end => |touch| std.log.info("touch {}: {s}", .{ touch.id, if (touch.ignore) "ignore" else "end" }),
         .gesture_zoom, .gesture_rotate => |value| std.log.info("{s} {}", .{ @tagName(event), value }),
@@ -191,16 +191,29 @@ fn loop() !bool {
 var actions = false;
 var request_attention = false;
 
+var modifier_buf: [32]u8 = undefined;
+
+fn modifierString(modifiers: wio.Modifiers) []const u8 {
+    var writer = std.Io.Writer.fixed(&modifier_buf);
+    if (modifiers.control) writer.writeAll("control ") catch {};
+    if (modifiers.shift) writer.writeAll("shift ") catch {};
+    if (modifiers.alt) writer.writeAll("alt ") catch {};
+    if (modifiers.gui) writer.writeAll("gui ") catch {};
+    return modifier_buf[0..writer.end];
+}
+
 fn actionEvent(event: wio.Event) !void {
     switch (event) {
-        .button_press, .button_repeat => |button| {
+        .button_press, .button_repeat => |event_button| {
+            const button = event_button.button;
             if (actions) {
                 try action(button);
             } else if (button == .left_control or button == .right_control) {
                 actions = true;
             }
         },
-        .button_release => |button| {
+        .button_release => |event_button| {
+            const button = event_button.button;
             if (button == .left_control or button == .right_control) {
                 actions = false;
             } else if (!builtin.single_threaded and button == .f12) {

@@ -23,11 +23,11 @@ extern "C" {
     void wioPosition(void *, int16, int16);
     void wioSize(void *, uint16, uint16);
     void wioChars(void *, const char *);
-    void wioKey(void *, int32, uint8);
-    void wioButtons(void *, uint8);
-    void wioMouse(void *, int16, int16);
-    void wioMouseRelative(void *, int16, int16);
-    void wioScroll(void *, float, float);
+    void wioKey(void *, int32, uint8, uint32);
+    void wioButtons(void *, uint8, uint32);
+    void wioMouse(void *, int16, int16, uint32);
+    void wioMouseRelative(void *, int16, int16, uint32);
+    void wioScroll(void *, float, float, uint32);
     void wioDropBegin(void *);
     void wioDropPosition(void *, int16, int16);
     void wioDropFile(void *, const char *);
@@ -36,6 +36,12 @@ extern "C" {
     void wioAudioOutputWrite(void *, void *, size_t);
 
     extern float wio_scale;
+}
+
+static uint32 messageModifiers(BMessage *message) {
+    int32 mods;
+    if (message->FindInt32("modifiers", &mods) != B_OK) mods = modifiers();
+    return (uint32)mods;
 }
 
 class WioWindow : public BWindow {
@@ -105,9 +111,10 @@ public:
             case B_KEY_DOWN:
             case B_UNMAPPED_KEY_DOWN: {
                 int32 key;
+                uint32 mods = messageModifiers(message);
                 if (message->FindInt32("key", &key) == B_OK) {
                     int32 repeat;
-                    wioKey(zig, key, (message->FindInt32("be:key_repeat", &repeat) == B_OK) ? 1 : 0);
+                    wioKey(zig, key, (message->FindInt32("be:key_repeat", &repeat) == B_OK) ? 1 : 0, mods);
                 }
                 const char *bytes;
                 if (message->FindString("bytes", &bytes) == B_OK) {
@@ -119,7 +126,7 @@ public:
             case B_UNMAPPED_KEY_UP: {
                 int32 key;
                 if (message->FindInt32("key", &key) == B_OK) {
-                    wioKey(zig, key, 2);
+                    wioKey(zig, key, 2, messageModifiers(message));
                 }
                 break;
             }
@@ -127,7 +134,7 @@ public:
             case B_MOUSE_UP: {
                 int32 buttons;
                 if (message->FindInt32("buttons", &buttons) == B_OK) {
-                    wioButtons(zig, buttons);
+                    wioButtons(zig, buttons, messageModifiers(message));
                 }
                 break;
             }
@@ -139,11 +146,11 @@ public:
                         int16 dx = where.x - (bounds.right / 2);
                         int16 dy = where.y - (bounds.bottom / 2);
                         if (dx != 0 || dy != 0) {
-                            wioMouseRelative(zig, dx, dy);
+                            wioMouseRelative(zig, dx, dy, messageModifiers(message));
                             WarpCursor();
                         }
                     } else {
-                        wioMouse(zig, where.x, where.y);
+                        wioMouse(zig, where.x, where.y, messageModifiers(message));
                     }
                 }
 
@@ -166,7 +173,7 @@ public:
                 float y, x;
                 message->FindFloat("be:wheel_delta_y", &y); // sets to 0 on failure
                 message->FindFloat("be:wheel_delta_x", &x); // sets to 0 on failure
-                wioScroll(zig, y, x);
+                wioScroll(zig, y, x, messageModifiers(message));
                 break;
             }
         }

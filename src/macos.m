@@ -19,13 +19,13 @@ void wioCancelWait(void);
 extern void wioChars(void *, const char *);
 extern void wioPreviewChars(void *, const char *, uint16_t, uint16_t);
 extern void wioPreviewReset(void *);
-extern void wioKey(void *, UInt16, UInt8);
-extern void wioButtonPress(void *, UInt8);
-extern void wioButtonRelease(void *, UInt8);
-extern void wioMouse(void *, SInt16, SInt16);
-extern void wioMouseRelative(void *, SInt16, SInt16);
+extern void wioKey(void *, UInt16, UInt8, UInt32);
+extern void wioButtonPress(void *, UInt8, UInt32);
+extern void wioButtonRelease(void *, UInt8, UInt32);
+extern void wioMouse(void *, SInt16, SInt16, UInt32);
+extern void wioMouseRelative(void *, SInt16, SInt16, UInt32);
 extern void wioMouseLeave(void *);
-extern void wioScroll(void *, Float32, Float32);
+extern void wioScroll(void *, Float32, Float32, UInt32);
 extern void wioGestureZoom(void *, Float32);
 extern void wioGestureRotate(void *, Float32);
 extern char *wioDupeClipboardText(const char *, size_t *);
@@ -316,7 +316,7 @@ static void warpCursor(NSWindow *window) {
     [self removeTrackingArea:area];
     area = [[NSTrackingArea alloc]
         initWithRect:[self frame]
-        options:NSTrackingActiveInKeyWindow | NSTrackingCursorUpdate | NSTrackingMouseEnteredAndExited | NSTrackingEnabledDuringMouseDrag
+        options:NSTrackingActiveAlways | NSTrackingCursorUpdate | NSTrackingMouseEnteredAndExited | NSTrackingEnabledDuringMouseDrag
         owner:self
         userInfo:nil];
     [self addTrackingArea:area];
@@ -328,14 +328,14 @@ static void warpCursor(NSWindow *window) {
 }
 
 - (void)keyDown:(NSEvent *)event {
-    wioKey(zig, [event keyCode], [event isARepeat]);
+    wioKey(zig, [event keyCode], [event isARepeat], [event modifierFlags]);
     if (textInput) {
         [[NSTextInputContext currentInputContext] handleEvent:event];
     }
 }
 
 - (void)keyUp:(NSEvent *)event {
-    wioKey(zig, [event keyCode], 2);
+    wioKey(zig, [event keyCode], 2, [event modifierFlags]);
 }
 
 - (void)flagsChanged:(NSEvent *)event {
@@ -351,50 +351,50 @@ static void warpCursor(NSWindow *window) {
         case 0x3D: flag = NX_DEVICERALTKEYMASK; break;
         case 0x3E: flag = NX_DEVICERCTLKEYMASK; break;
         case 0x39:
-            wioKey(zig, key, 0);
-            wioKey(zig, key, 2);
+            wioKey(zig, key, 0, [event modifierFlags]);
+            wioKey(zig, key, 2, [event modifierFlags]);
             return;
         default: return;
     }
     NSUInteger modifiers = [event modifierFlags];
-    wioKey(zig, key, modifiers & flag ? 0 : 2);
+    wioKey(zig, key, modifiers & flag ? 0 : 2, modifiers);
     wioModifiers(zig, modifiers);
 }
 
 - (void)mouseDown:(NSEvent *)event {
-    wioButtonPress(zig, 0);
+    wioButtonPress(zig, 0, [event modifierFlags]);
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    wioButtonRelease(zig, 0);
+    wioButtonRelease(zig, 0, [event modifierFlags]);
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
-    wioButtonPress(zig, 1);
+    wioButtonPress(zig, 1, [event modifierFlags]);
 }
 
 - (void)rightMouseUp:(NSEvent *)event {
-    wioButtonRelease(zig, 1);
+    wioButtonRelease(zig, 1, [event modifierFlags]);
 }
 
 - (void)otherMouseDown:(NSEvent *)event {
     NSInteger button = [event buttonNumber];
-    if (button < 5) wioButtonPress(zig, button);
+    if (button < 5) wioButtonPress(zig, button, [event modifierFlags]);
 }
 
 - (void)otherMouseUp:(NSEvent *)event {
     NSInteger button = [event buttonNumber];
-    if (button < 5) wioButtonRelease(zig, button);
+    if (button < 5) wioButtonRelease(zig, button, [event modifierFlags]);
 }
 
 - (void)mouseMoved:(NSEvent *)event {
     if (relativeMouse) {
-        wioMouseRelative(zig, [event deltaX], [event deltaY]);
+        wioMouseRelative(zig, [event deltaX], [event deltaY], [event modifierFlags]);
     } else {
         NSPoint location = [event locationInWindow];
         NSRect frame = [self frame];
         location.y = frame.size.height - location.y - 1;
-        wioMouse(zig, location.x, location.y);
+        wioMouse(zig, location.x, location.y, [event modifierFlags]);
     }
 }
 
@@ -423,7 +423,7 @@ static void warpCursor(NSWindow *window) {
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    wioScroll(zig, [event scrollingDeltaX], [event scrollingDeltaY]);
+    wioScroll(zig, [event scrollingDeltaX], [event scrollingDeltaY], [event modifierFlags]);
 }
 
 - (void)handleMagnificationGesture:(NSMagnificationGestureRecognizer *)gestureRecognizer {

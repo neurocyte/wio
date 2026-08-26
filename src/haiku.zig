@@ -100,6 +100,7 @@ pub fn openUri(uri: []const u8) void {
 }
 
 pub const Window = struct {
+    last_modifiers: wio.Modifiers = .{},
     event_fn_data: ?*anyopaque,
     window: *BWindow,
     buttons: std.StaticBitSet(5) = .empty,
@@ -547,41 +548,57 @@ export fn wioChars(self: *Window, chars: [*:0]const u8) void {
     }
 }
 
-export fn wioKey(self: *Window, key: i32, event: u8) void {
+fn decodeModifiers(mods: u32) wio.Modifiers {
+    return .{
+        .shift = (mods & 0x01 != 0), // B_SHIFT_KEY
+        .alt = (mods & 0x02 != 0), // B_COMMAND_KEY, the Alt-labelled key
+        .control = (mods & 0x04 != 0), // B_CONTROL_KEY
+        .gui = (mods & 0x40 != 0), // B_OPTION_KEY
+    };
+}
+
+export fn wioKey(self: *Window, key: i32, event: u8, mods: u32) void {
     if (keyToButton(key)) |button| {
-        internal.eventFn(self.event_fn_data, switch (event) {
-            0 => .{ .button_press = button },
-            1 => .{ .button_repeat = button },
-            2 => .{ .button_release = button },
+        const modifiers = decodeModifiers(mods);
+        const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+        internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, switch (event) {
+            0 => .{ .button_press = button_event },
+            1 => .{ .button_repeat = button_event },
+            2 => .{ .button_release = button_event },
             else => unreachable,
         });
     }
 }
 
-export fn wioButtons(self: *Window, buttons: u8) void {
+export fn wioButtons(self: *Window, buttons: u8, mods: u32) void {
+    const modifiers = decodeModifiers(mods);
     const changes = self.buttons.xorWith(.{ .mask = @truncate(buttons) });
     var iter = changes.iterator(.{});
     while (iter.next()) |i| {
+        const button_event: wio.Button.Event = .{ .button = @enumFromInt(i), .modifiers = modifiers };
         if (self.buttons.isSet(i)) {
-            internal.eventFn(self.event_fn_data, .{ .button_release = @enumFromInt(i) });
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = button_event });
         } else {
-            internal.eventFn(self.event_fn_data, .{ .button_press = @enumFromInt(i) });
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_press = button_event });
         }
     }
     self.buttons = self.buttons.xorWith(changes);
 }
 
-export fn wioMouse(self: *Window, x: i16, y: i16) void {
-    internal.eventFn(self.event_fn_data, .{ .mouse = .{ .x = x, .y = y } });
+export fn wioMouse(self: *Window, x: i16, y: i16, mods: u32) void {
+    const modifiers = decodeModifiers(mods);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse = .{ .position = .{ .x = x, .y = y }, .modifiers = modifiers } });
 }
 
-export fn wioMouseRelative(self: *Window, x: i16, y: i16) void {
-    internal.eventFn(self.event_fn_data, .{ .mouse_relative = .{ .x = x, .y = y } });
+export fn wioMouseRelative(self: *Window, x: i16, y: i16, mods: u32) void {
+    const modifiers = decodeModifiers(mods);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse_relative = .{ .position = .{ .x = x, .y = y }, .modifiers = modifiers } });
 }
 
-export fn wioScroll(self: *Window, vertical: f32, horizontal: f32) void {
-    if (vertical != 0) internal.eventFn(self.event_fn_data, .{ .scroll_vertical = vertical });
-    if (horizontal != 0) internal.eventFn(self.event_fn_data, .{ .scroll_horizontal = horizontal });
+export fn wioScroll(self: *Window, vertical: f32, horizontal: f32, mods: u32) void {
+    const modifiers = decodeModifiers(mods);
+    if (vertical != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = vertical, .modifiers = modifiers } });
+    if (horizontal != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = horizontal, .modifiers = modifiers } });
 }
 
 fn wioDropBegin(self: *Window) callconv(.c) void {

@@ -67,6 +67,7 @@ class Wio {
             this.modifiers = modifiers;
             this.instance.exports.wioEvent(data, 11, this.modifiers);
         }
+        return modifiers;
     }
 
     imports = {
@@ -166,37 +167,39 @@ class Wio {
             });
             canvas.addEventListener("keydown", (event) => {
                 event.preventDefault();
+                const modifiers = this.updateModifiers(data, event);
                 const key = Wio.keys[event.code];
-                if (key) wioEvent(data, event.repeat ? 17 : 16, key);
-                this.updateModifiers(data, event);
+                if (key) wioEvent(data, event.repeat ? 17 : 16, key, 0, 0, modifiers);
             });
             canvas.addEventListener("keyup", (event) => {
+                const modifiers = this.updateModifiers(data, event);
                 const key = Wio.keys[event.code];
-                if (key) wioEvent(data, 18, key);
-                this.updateModifiers(data, event);
+                if (key) wioEvent(data, 18, key, 0, 0, modifiers);
             });
             canvas.addEventListener("mousedown", (event) => {
+                const modifiers = this.updateModifiers(data, event);
                 const button = Wio.buttons[event.button];
-                if (button !== undefined) wioEvent(data, 16, button);
+                if (button !== undefined) wioEvent(data, 16, button, 0, 0, modifiers);
                 if (window.relative_mouse) canvas.requestPointerLock({ unadjustedMovement: window.relative_mouse_unadjusted });
-                this.updateModifiers(data, event);
             });
             canvas.addEventListener("mouseup", (event) => {
+                const modifiers = this.updateModifiers(data, event);
                 const button = Wio.buttons[event.button];
-                if (button !== undefined) wioEvent(data, 18, button);
+                if (button !== undefined) wioEvent(data, 18, button, 0, 0, modifiers);
             });
             canvas.addEventListener("mousemove", (event) => {
+                const modifiers = this.updateModifiers(data, event);
                 if (!window.relative_mouse) {
-                    wioEvent(data, 19, event.offsetX, event.offsetY);
+                    wioEvent(data, 19, event.offsetX, event.offsetY, 0, modifiers);
                 } else {
-                    wioEvent(data, 20, event.movementX, event.movementY);
+                    wioEvent(data, 20, event.movementX, event.movementY, 0, modifiers);
                 }
-                this.updateModifiers(data, event);
             });
             canvas.addEventListener("mouseleave", () => wioEvent(data, 21));
             canvas.addEventListener("wheel", (event) => {
-                if (event.deltaY !== 0) wioEvent(data, 22, 0, 0, event.deltaY);
-                if (event.deltaX !== 0) wioEvent(data, 23, 0, 0, event.deltaX);
+                const modifiers = this.updateModifiers(data, event);
+                if (event.deltaY !== 0) wioEvent(data, 22, 0, 0, event.deltaY, modifiers);
+                if (event.deltaX !== 0) wioEvent(data, 23, 0, 0, event.deltaX, modifiers);
             });
             canvas.addEventListener("dragenter", (event) => {
                 event.preventDefault();

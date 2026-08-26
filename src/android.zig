@@ -733,7 +733,7 @@ const native = struct {
     var last_buttons: c.jint = 0;
 
     fn pushMouseEvent(_: *c.JNIEnv, _: c.jobject, x: c.jint, y: c.jint, buttons: c.jint) callconv(.c) void {
-        internal.eventFn(event_fn_data, .{ .mouse = .{ .x = std.math.cast(i16, x) orelse return, .y = std.math.cast(i16, y) orelse return } });
+        internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .mouse = .{ .position = .{ .x = std.math.cast(i16, x) orelse return, .y = std.math.cast(i16, y) orelse return }, .modifiers = modifiers } });
 
         const changes = last_buttons ^ buttons;
         if (changes != 0) {
@@ -749,10 +749,11 @@ const native = struct {
                         c.AMOTION_EVENT_BUTTON_FORWARD => .mouse_forward,
                         else => unreachable,
                     };
+                    const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
                     if (buttons & i != 0) {
-                        internal.eventFn(event_fn_data, .{ .button_press = button });
+                        internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .button_press = button_event });
                     } else {
-                        internal.eventFn(event_fn_data, .{ .button_release = button });
+                        internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .button_release = button_event });
                     }
                 }
             }
@@ -760,8 +761,8 @@ const native = struct {
     }
 
     fn pushScrollEvent(_: *c.JNIEnv, _: c.jobject, vertical: c.jfloat, horizontal: c.jfloat) callconv(.c) void {
-        if (vertical != 0) internal.eventFn(event_fn_data, .{ .scroll_vertical = -vertical });
-        if (horizontal != 0) internal.eventFn(event_fn_data, .{ .scroll_horizontal = -horizontal });
+        if (vertical != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = -vertical, .modifiers = modifiers } });
+        if (horizontal != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = -horizontal, .modifiers = modifiers } });
     }
 
     fn onKeyDown(_: *c.JNIEnv, _: c.jobject, id: c.jint, keycode: c.jint, repeat: c.jint) callconv(.c) c.jboolean {
@@ -781,8 +782,9 @@ const native = struct {
         }
 
         const button = keycodeToButton(keycode) orelse return c.JNI_FALSE;
-        internal.eventFn(event_fn_data, if (repeat == 0) .{ .button_press = button } else .{ .button_repeat = button });
         updateModifiers(button, true);
+        const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+        internal.sendInput(event_fn_data, &last_modifiers, modifiers, if (repeat == 0) .{ .button_press = button_event } else .{ .button_repeat = button_event });
         return c.JNI_TRUE;
     }
 
@@ -803,8 +805,8 @@ const native = struct {
         }
 
         const button = keycodeToButton(keycode) orelse return c.JNI_FALSE;
-        internal.eventFn(event_fn_data, .{ .button_release = button });
         updateModifiers(button, false);
+        internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .button_release = .{ .button = button, .modifiers = modifiers } });
         return c.JNI_TRUE;
     }
 
@@ -853,7 +855,7 @@ const native = struct {
     }
 
     fn onCapturedPointerEvent(_: *c.JNIEnv, _: c.jobject, x: c.jint, y: c.jint) callconv(.c) void {
-        internal.eventFn(event_fn_data, .{ .mouse_relative = .{ .x = std.math.cast(i16, x) orelse return, .y = std.math.cast(i16, y) orelse return } });
+        internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .mouse_relative = .{ .position = .{ .x = std.math.cast(i16, x) orelse return, .y = std.math.cast(i16, y) orelse return }, .modifiers = modifiers } });
     }
 
     fn pushCharEvent(_: *c.JNIEnv, _: c.jobject, codepoint: c.jint) callconv(.c) void {
@@ -922,6 +924,8 @@ const native = struct {
     }
 };
 
+var last_modifiers: wio.Modifiers = .{};
+
 fn updateModifiers(button: wio.Button, value: bool) void {
     const modifier = switch (button) {
         .left_control, .right_control => &modifiers.control,
@@ -931,7 +935,10 @@ fn updateModifiers(button: wio.Button, value: bool) void {
     };
     if (modifier.* != value) {
         modifier.* = value;
-        internal.eventFn(event_fn_data, .{ .modifiers = modifiers });
+        if (!std.meta.eql(last_modifiers, modifiers)) {
+            last_modifiers = modifiers;
+            internal.eventFn(event_fn_data, .{ .modifiers = modifiers });
+        }
     }
 }
 

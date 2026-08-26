@@ -270,6 +270,7 @@ pub const Window = struct {
     fullscreen: bool = false,
     rect: w.RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
     surrogate: u16 = 0,
+    last_modifiers: wio.Modifiers = .{},
     left_shift: bool = false,
     right_shift: bool = false,
     left_control: bool = false,
@@ -511,7 +512,8 @@ pub const Window = struct {
     fn releaseIfUp(self: *Window, latch: *bool, vk: u16, button: wio.Button) void {
         if (latch.* and w.GetAsyncKeyState(vk) == 0) {
             latch.* = false;
-            internal.eventFn(self.event_fn_data, .{ .button_release = button });
+            const modifiers = currentModifiers();
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = .{ .button = button, .modifiers = modifiers } });
         }
     }
 
@@ -522,7 +524,11 @@ pub const Window = struct {
         self.releaseIfUp(&self.right_control, w.VK_RCONTROL, .right_control);
         self.releaseIfUp(&self.left_alt, w.VK_LMENU, .left_alt);
         self.releaseIfUp(&self.right_alt, w.VK_RMENU, .right_alt);
-        internal.eventFn(self.event_fn_data, .{ .modifiers = currentModifiers() });
+        const modifiers = currentModifiers();
+        if (!std.meta.eql(self.last_modifiers, modifiers)) {
+            self.last_modifiers = modifiers;
+            internal.eventFn(self.event_fn_data, .{ .modifiers = modifiers });
+        }
     }
 
     pub fn setPosition(self: *Window, position: wio.Position) void {
@@ -1835,20 +1841,18 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                     else => null,
                 };
 
+                const modifiers = currentModifiers();
+                const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
                 if (flags & w.KF_UP == 0) {
                     var repeat = (flags & w.KF_REPEAT != 0);
                     if (modifier) |ptr| {
                         repeat = ptr.*;
                         ptr.* = true;
                     }
-                    internal.eventFn(self.event_fn_data, if (repeat) .{ .button_repeat = button } else .{ .button_press = button });
+                    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, if (repeat) .{ .button_repeat = button_event } else .{ .button_press = button_event });
                 } else {
                     if (modifier) |ptr| ptr.* = false;
-                    internal.eventFn(self.event_fn_data, .{ .button_release = button });
-                }
-
-                if (modifier != null) {
-                    internal.eventFn(self.event_fn_data, .{ .modifiers = currentModifiers() });
+                    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = button_event });
                 }
             }
             return 0;
@@ -1868,21 +1872,24 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 w.WM_MBUTTONDOWN, w.WM_MBUTTONUP => .mouse_middle,
                 else => if (HIWORD(wParam) == w.XBUTTON1) .mouse_back else .mouse_forward,
             };
+            const modifiers = currentModifiers();
+            const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
 
             switch (msg) {
                 w.WM_LBUTTONDOWN,
                 w.WM_MBUTTONDOWN,
                 w.WM_RBUTTONDOWN,
                 w.WM_XBUTTONDOWN,
-                => internal.eventFn(self.event_fn_data, .{ .button_press = button }),
-                else => internal.eventFn(self.event_fn_data, .{ .button_release = button }),
+                => internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_press = button_event }),
+                else => internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = button_event }),
             }
 
             return if (msg == w.WM_XBUTTONDOWN or msg == w.WM_XBUTTONUP) w.TRUE else 0;
         },
         w.WM_MOUSEMOVE => {
             if (!self.relative_mouse) {
-                internal.eventFn(self.event_fn_data, .{ .mouse = .{ .x = LOSHORT(lParam), .y = HISHORT(lParam) } });
+                const modifiers = currentModifiers();
+                internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse = .{ .position = .{ .x = LOSHORT(lParam), .y = HISHORT(lParam) }, .modifiers = modifiers } });
             }
 
             if (!self.tracking) {
@@ -1910,13 +1917,15 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 if (raw.data.mouse.usFlags & w.MOUSE_MOVE_ABSOLUTE != 0) {
                     if (raw.data.mouse.lLastX != 0 or raw.data.mouse.lLastY != 0) { // prevent spurious (0,0)
                         if (raw.data.mouse.Anonymous.Anonymous.usButtonFlags == 0) { // prevent jumping on touch input
-                            internal.eventFn(self.event_fn_data, .{ .mouse_relative = .{ .x = @intCast(raw.data.mouse.lLastX - self.last_x), .y = @intCast(raw.data.mouse.lLastY - self.last_y) } });
+                            const modifiers = currentModifiers();
+                            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse_relative = .{ .position = .{ .x = @intCast(raw.data.mouse.lLastX - self.last_x), .y = @intCast(raw.data.mouse.lLastY - self.last_y) }, .modifiers = modifiers } });
                         }
                         self.last_x = @intCast(raw.data.mouse.lLastX);
                         self.last_y = @intCast(raw.data.mouse.lLastY);
                     }
                 } else {
-                    internal.eventFn(self.event_fn_data, .{ .mouse_relative = .{ .x = @intCast(raw.data.mouse.lLastX), .y = @intCast(raw.data.mouse.lLastY) } });
+                    const modifiers = currentModifiers();
+                    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse_relative = .{ .position = .{ .x = @intCast(raw.data.mouse.lLastX), .y = @intCast(raw.data.mouse.lLastY) }, .modifiers = modifiers } });
                 }
             }
             return 0;
@@ -1929,7 +1938,8 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
         w.WM_MOUSEWHEEL, w.WM_MOUSEHWHEEL => {
             const delta: f32 = @floatFromInt(HISHORT(wParam));
             const value = delta / w.WHEEL_DELTA;
-            internal.eventFn(self.event_fn_data, if (msg == w.WM_MOUSEWHEEL) .{ .scroll_vertical = -value } else .{ .scroll_horizontal = value });
+            const modifiers = currentModifiers();
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, if (msg == w.WM_MOUSEWHEEL) .{ .scroll_vertical = .{ .delta = -value, .modifiers = modifiers } } else .{ .scroll_horizontal = .{ .delta = value, .modifiers = modifiers } });
             return 0;
         },
         w.WM_POINTERDOWN, w.WM_POINTERUPDATE => {

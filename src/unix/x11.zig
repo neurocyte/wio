@@ -271,7 +271,7 @@ pub const Window = struct {
     event_fn_data: ?*anyopaque,
     window: h.Window,
     ic: h.XIC,
-    xkb_mods: c_uint = 0,
+    last_modifiers: wio.Modifiers = .{},
     text: bool = false,
     preedit_string: std.ArrayList(u21) = .empty,
     relative_mouse: bool = false,
@@ -969,16 +969,10 @@ fn handle(event: *h.XEvent) void {
         return;
     };
 
-    if (window.xkb_mods != globals.xkb_mods) {
-        internal.eventFn(window.event_fn_data, .{
-            .modifiers = .{
-                .control = (globals.xkb_mods & h.ControlMask != 0),
-                .shift = (globals.xkb_mods & h.ShiftMask != 0),
-                .alt = (globals.xkb_mods & h.Mod1Mask != 0),
-                .gui = (globals.xkb_mods & h.Mod4Mask != 0),
-            },
-        });
-        window.xkb_mods = globals.xkb_mods;
+    const modifiers = currentModifiers();
+    if (!std.meta.eql(window.last_modifiers, modifiers)) {
+        window.last_modifiers = modifiers;
+        internal.eventFn(window.event_fn_data, .{ .modifiers = modifiers });
     }
 
     if (window.text and c.XFilterEvent(event, h.None) == h.True) {
@@ -1149,22 +1143,22 @@ fn handle(event: *h.XEvent) void {
                 }
             }
             const button = globals.keycodes[event.xkey.keycode - 8];
-            if (button != .mouse_left) internal.eventFn(window.event_fn_data, .{ .button_release = button });
+            if (button != .mouse_left) internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .button_release = .{ .button = button, .modifiers = modifiers } });
         },
         h.ButtonPress => {
             const button: wio.Button = switch (event.xbutton.button) {
                 1 => .mouse_left,
                 2 => .mouse_middle,
                 3 => .mouse_right,
-                4 => return internal.eventFn(window.event_fn_data, .{ .scroll_vertical = -1 }),
-                5 => return internal.eventFn(window.event_fn_data, .{ .scroll_vertical = 1 }),
-                6 => return internal.eventFn(window.event_fn_data, .{ .scroll_horizontal = -1 }),
-                7 => return internal.eventFn(window.event_fn_data, .{ .scroll_horizontal = 1 }),
+                4 => return internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = -1, .modifiers = modifiers } }),
+                5 => return internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = 1, .modifiers = modifiers } }),
+                6 => return internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = -1, .modifiers = modifiers } }),
+                7 => return internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = 1, .modifiers = modifiers } }),
                 8 => .mouse_back,
                 9 => .mouse_forward,
                 else => return,
             };
-            internal.eventFn(window.event_fn_data, .{ .button_press = button });
+            internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .button_press = .{ .button = button, .modifiers = modifiers } });
         },
         h.ButtonRelease => {
             const button: wio.Button = switch (event.xbutton.button) {
@@ -1175,7 +1169,7 @@ fn handle(event: *h.XEvent) void {
                 9 => .mouse_forward,
                 else => return,
             };
-            internal.eventFn(window.event_fn_data, .{ .button_release = button });
+            internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .button_release = .{ .button = button, .modifiers = modifiers } });
         },
         h.MotionNotify => {
             if (window.relative_mouse) {
@@ -1185,7 +1179,7 @@ fn handle(event: *h.XEvent) void {
                     if (window.warped) {
                         const x = std.math.cast(i16, dx) orelse return;
                         const y = std.math.cast(i16, dy) orelse return;
-                        internal.eventFn(window.event_fn_data, .{ .mouse_relative = .{ .x = x, .y = y } });
+                        internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .mouse_relative = .{ .position = .{ .x = x, .y = y }, .modifiers = modifiers } });
                     }
                     _ = c.XWarpPointer(globals.display, h.None, window.window, 0, 0, 0, 0, window.size.width / 2, window.size.height / 2);
                     window.warped = true;
@@ -1193,7 +1187,7 @@ fn handle(event: *h.XEvent) void {
             } else {
                 const x = std.math.cast(i16, event.xmotion.x) orelse return;
                 const y = std.math.cast(i16, event.xmotion.y) orelse return;
-                internal.eventFn(window.event_fn_data, .{ .mouse = .{ .x = x, .y = y } });
+                internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .mouse = .{ .position = .{ .x = x, .y = y }, .modifiers = modifiers } });
             }
         },
         h.LeaveNotify => {
@@ -1292,11 +1286,22 @@ fn handle(event: *h.XEvent) void {
     }
 }
 
+fn currentModifiers() wio.Modifiers {
+    return .{
+        .control = (globals.xkb_mods & h.ControlMask != 0),
+        .shift = (globals.xkb_mods & h.ShiftMask != 0),
+        .alt = (globals.xkb_mods & h.Mod1Mask != 0),
+        .gui = (globals.xkb_mods & h.Mod4Mask != 0),
+    };
+}
+
 fn handleKeyPress(window: *Window, event: *h.XEvent, repeat: bool) void {
     if (event.xkey.keycode != 0) {
         const button = globals.keycodes[event.xkey.keycode - 8];
         if (button != .mouse_left) {
-            internal.eventFn(window.event_fn_data, if (repeat) .{ .button_repeat = button } else .{ .button_press = button });
+            const modifiers = currentModifiers();
+            const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+            internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, if (repeat) .{ .button_repeat = button_event } else .{ .button_press = button_event });
         }
     }
 

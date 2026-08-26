@@ -630,6 +630,7 @@ pub const Event = union(enum) {
     /// is moved between monitors.
     refresh_rate: u32,
 
+    /// Sent on modifier state change.
     modifiers: Modifiers,
 
     /// System application light/dark mode.
@@ -646,19 +647,19 @@ pub const Event = union(enum) {
     /// otherwise characters within the range should be highlighted.
     preview_cursor: [2]u16,
 
-    button_press: Button,
-    button_repeat: Button,
-    button_release: Button,
+    button_press: Button.Event,
+    button_repeat: Button.Event,
+    button_release: Button.Event,
 
     /// Relative to the top-left corner of the window.
-    mouse: Position,
+    mouse: Mouse,
     /// Relative to the last mouse position.
     ///
     /// Only sent when `Window.enableRelativeMouse` has been called.
-    mouse_relative: Position,
+    mouse_relative: Mouse,
     mouse_leave: void,
-    scroll_vertical: f32,
-    scroll_horizontal: f32,
+    scroll_vertical: Scroll,
+    scroll_horizontal: Scroll,
 
     touch: Touch,
     touch_end: TouchEnd,
@@ -672,6 +673,16 @@ pub const Event = union(enum) {
     drop_begin: void,
     drop_position: Position,
     drop_complete: void,
+
+    pub const Mouse = struct {
+        position: Position,
+        modifiers: Modifiers,
+    };
+
+    pub const Scroll = struct {
+        delta: f32,
+        modifiers: Modifiers,
+    };
 
     pub const Touch = struct {
         id: u8,
@@ -883,6 +894,11 @@ pub const Button = enum {
     right_shift,
     right_alt,
     right_gui,
+
+    pub const Event = struct {
+        button: Button,
+        modifiers: Modifiers,
+    };
 };
 
 fn assertFeature(feature: anytype) void {

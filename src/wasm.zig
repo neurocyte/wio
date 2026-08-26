@@ -382,7 +382,17 @@ export fn wioLoop() bool {
     };
 }
 
-export fn wioEvent(data: ?*anyopaque, event: u32, int0: u32, int1: u32, float0: f32) void {
+fn decodeModifiers(bits: u32) wio.Modifiers {
+    return .{
+        .control = (bits & (1 << 0) != 0),
+        .shift = (bits & (1 << 1) != 0),
+        .alt = (bits & (1 << 2) != 0),
+        .gui = (bits & (1 << 3) != 0),
+    };
+}
+
+export fn wioEvent(data: ?*anyopaque, event: u32, int0: u32, int1: u32, float0: f32, mods: u32) void {
+    const modifiers = decodeModifiers(mods);
     internal.eventFn(data, switch (@as(wio.EventType, @enumFromInt(event))) {
         .focused => .focused,
         .unfocused => .unfocused,
@@ -391,23 +401,18 @@ export fn wioEvent(data: ?*anyopaque, event: u32, int0: u32, int1: u32, float0: 
         .size_logical => .{ .size_logical = .{ .width = @truncate(int0), .height = @truncate(int1) } },
         .size_physical => .{ .size_physical = .{ .width = @truncate(int0), .height = @truncate(int1) } },
         .scale => .{ .scale = float0 },
-        .modifiers => .{ .modifiers = .{
-            .control = (int0 & (1 << 0) != 0),
-            .shift = (int0 & (1 << 1) != 0),
-            .alt = (int0 & (1 << 2) != 0),
-            .gui = (int0 & (1 << 3) != 0),
-        } },
+        .modifiers => .{ .modifiers = decodeModifiers(int0) },
         .char => .{ .char = @intCast(int0) },
         .preview_reset => .preview_reset,
         .preview_char => .{ .preview_char = @intCast(int0) },
-        .button_press => .{ .button_press = @enumFromInt(int0) },
-        .button_repeat => .{ .button_repeat = @enumFromInt(int0) },
-        .button_release => .{ .button_release = @enumFromInt(int0) },
-        .mouse => .{ .mouse = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) } },
-        .mouse_relative => .{ .mouse_relative = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) } },
+        .button_press => .{ .button_press = .{ .button = @enumFromInt(int0), .modifiers = modifiers } },
+        .button_repeat => .{ .button_repeat = .{ .button = @enumFromInt(int0), .modifiers = modifiers } },
+        .button_release => .{ .button_release = .{ .button = @enumFromInt(int0), .modifiers = modifiers } },
+        .mouse => .{ .mouse = .{ .position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) }, .modifiers = modifiers } },
+        .mouse_relative => .{ .mouse_relative = .{ .position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) }, .modifiers = modifiers } },
         .mouse_leave => .mouse_leave,
-        .scroll_vertical => .{ .scroll_vertical = float0 },
-        .scroll_horizontal => .{ .scroll_horizontal = float0 },
+        .scroll_vertical => .{ .scroll_vertical = .{ .delta = float0, .modifiers = modifiers } },
+        .scroll_horizontal => .{ .scroll_horizontal = .{ .delta = float0, .modifiers = modifiers } },
         .drop_begin => .drop_begin,
         .drop_position => .{ .drop_position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) } },
         .drop_complete => .drop_complete,

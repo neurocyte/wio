@@ -8,6 +8,14 @@ pub var eventFn: *const fn (?*anyopaque, wio.Event) void = undefined;
 
 pub var wait = false;
 
+pub fn sendInput(data: ?*anyopaque, last: *wio.Modifiers, modifiers: wio.Modifiers, event: wio.Event) void {
+    if (!std.meta.eql(last.*, modifiers)) {
+        last.* = modifiers;
+        eventFn(data, .{ .modifiers = modifiers });
+    }
+    eventFn(data, event);
+}
+
 pub fn logUnexpected(name: []const u8) error{Unexpected} {
     log.err("{s} failed", .{name});
     return error.Unexpected;

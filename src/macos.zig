@@ -188,6 +188,7 @@ pub fn openUri(uri: []const u8) void {
 }
 
 pub const Window = struct {
+    last_modifiers: wio.Modifiers = .{},
     event_fn_data: ?*anyopaque,
     window: *NSWindow,
     draw_available_ns: u32 = 0,
@@ -907,15 +908,21 @@ export fn wioScale(self: *Window, scale: f32) void {
     internal.eventFn(self.event_fn_data, .{ .scale = scale });
 }
 
+fn decodeModifiers(modifiers: u32) wio.Modifiers {
+    return .{
+        .control = (modifiers & (1 << 18) != 0),
+        .shift = (modifiers & (1 << 17) != 0),
+        .alt = (modifiers & (1 << 19) != 0),
+        .gui = (modifiers & (1 << 20) != 0),
+    };
+}
+
 export fn wioModifiers(self: *Window, modifiers: u32) void {
-    internal.eventFn(self.event_fn_data, .{
-        .modifiers = .{
-            .control = (modifiers & (1 << 18) != 0),
-            .shift = (modifiers & (1 << 17) != 0),
-            .alt = (modifiers & (1 << 19) != 0),
-            .gui = (modifiers & (1 << 20) != 0),
-        },
-    });
+    const decoded = decodeModifiers(modifiers);
+    if (!std.meta.eql(self.last_modifiers, decoded)) {
+        self.last_modifiers = decoded;
+        internal.eventFn(self.event_fn_data, .{ .modifiers = decoded });
+    }
 }
 
 export fn wioChars(self: *Window, buf: [*:0]const u8) void {
@@ -939,40 +946,47 @@ export fn wioPreviewReset(self: *Window) void {
     internal.eventFn(self.event_fn_data, .preview_reset);
 }
 
-export fn wioKey(self: *Window, key: u16, event: u8) void {
+export fn wioKey(self: *Window, key: u16, event: u8, modifiers: u32) void {
     if (keycodeToButton(key)) |button| {
-        switch (event) {
-            0 => internal.eventFn(self.event_fn_data, .{ .button_press = button }),
-            1 => internal.eventFn(self.event_fn_data, .{ .button_repeat = button }),
-            2 => internal.eventFn(self.event_fn_data, .{ .button_release = button }),
+        const mods = decodeModifiers(modifiers);
+        const button_event: wio.Button.Event = .{ .button = button, .modifiers = mods };
+        internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, switch (event) {
+            0 => .{ .button_press = button_event },
+            1 => .{ .button_repeat = button_event },
+            2 => .{ .button_release = button_event },
             else => unreachable,
-        }
+        });
     }
 }
 
-export fn wioButtonPress(self: *Window, button: u8) void {
-    internal.eventFn(self.event_fn_data, .{ .button_press = @enumFromInt(button) });
+export fn wioButtonPress(self: *Window, button: u8, modifiers: u32) void {
+    const mods = decodeModifiers(modifiers);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .button_press = .{ .button = @enumFromInt(button), .modifiers = mods } });
 }
 
-export fn wioButtonRelease(self: *Window, button: u8) void {
-    internal.eventFn(self.event_fn_data, .{ .button_release = @enumFromInt(button) });
+export fn wioButtonRelease(self: *Window, button: u8, modifiers: u32) void {
+    const mods = decodeModifiers(modifiers);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .button_release = .{ .button = @enumFromInt(button), .modifiers = mods } });
 }
 
-export fn wioMouse(self: *Window, x: i16, y: i16) void {
-    internal.eventFn(self.event_fn_data, .{ .mouse = .{ .x = x, .y = y } });
+export fn wioMouse(self: *Window, x: i16, y: i16, modifiers: u32) void {
+    const mods = decodeModifiers(modifiers);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .mouse = .{ .position = .{ .x = x, .y = y }, .modifiers = mods } });
 }
 
-export fn wioMouseRelative(self: *Window, x: i16, y: i16) void {
-    internal.eventFn(self.event_fn_data, .{ .mouse_relative = .{ .x = x, .y = y } });
+export fn wioMouseRelative(self: *Window, x: i16, y: i16, modifiers: u32) void {
+    const mods = decodeModifiers(modifiers);
+    internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .mouse_relative = .{ .position = .{ .x = x, .y = y }, .modifiers = mods } });
 }
 
 export fn wioMouseLeave(self: *Window) void {
     internal.eventFn(self.event_fn_data, .mouse_leave);
 }
 
-export fn wioScroll(self: *Window, x: f32, y: f32) void {
-    if (x != 0) internal.eventFn(self.event_fn_data, .{ .scroll_horizontal = -x });
-    if (y != 0) internal.eventFn(self.event_fn_data, .{ .scroll_vertical = -y });
+export fn wioScroll(self: *Window, x: f32, y: f32, modifiers: u32) void {
+    const mods = decodeModifiers(modifiers);
+    if (x != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_horizontal = .{ .delta = -x, .modifiers = mods } });
+    if (y != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_vertical = .{ .delta = -y, .modifiers = mods } });
 }
 
 export fn wioGestureZoom(self: *Window, value: f32) void {
