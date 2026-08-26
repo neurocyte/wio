@@ -100,6 +100,7 @@ static void warpCursor(NSWindow *window) {
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification {
+    wioModifiers(zig, [NSEvent modifierFlags]);
     wioFocused(zig);
 
     NSWindow *window = [notification object];
