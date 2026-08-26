@@ -508,6 +508,23 @@ pub const Window = struct {
         }
     }
 
+    fn releaseIfUp(self: *Window, latch: *bool, vk: u16, button: wio.Button) void {
+        if (latch.* and w.GetAsyncKeyState(vk) == 0) {
+            latch.* = false;
+            internal.eventFn(self.event_fn_data, .{ .button_release = button });
+        }
+    }
+
+    fn pushModifiers(self: *Window) void {
+        self.releaseIfUp(&self.left_shift, w.VK_LSHIFT, .left_shift);
+        self.releaseIfUp(&self.right_shift, w.VK_RSHIFT, .right_shift);
+        self.releaseIfUp(&self.left_control, w.VK_LCONTROL, .left_control);
+        self.releaseIfUp(&self.right_control, w.VK_RCONTROL, .right_control);
+        self.releaseIfUp(&self.left_alt, w.VK_LMENU, .left_alt);
+        self.releaseIfUp(&self.right_alt, w.VK_RMENU, .right_alt);
+        internal.eventFn(self.event_fn_data, .{ .modifiers = currentModifiers() });
+    }
+
     pub fn setPosition(self: *Window, position: wio.Position) void {
         _ = w.SetWindowPos(self.window, null, position.x, position.y, 0, 0, w.SWP_NOSIZE | w.SWP_NOZORDER);
     }
@@ -1623,6 +1640,15 @@ fn helperWindowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM
     }
 }
 
+fn currentModifiers() wio.Modifiers {
+    return .{
+        .control = (w.GetAsyncKeyState(w.VK_CONTROL) < 0),
+        .shift = (w.GetAsyncKeyState(w.VK_SHIFT) < 0),
+        .alt = (w.GetAsyncKeyState(w.VK_MENU) < 0),
+        .gui = (w.GetAsyncKeyState(w.VK_LWIN) < 0 or w.GetAsyncKeyState(w.VK_RWIN) < 0),
+    };
+}
+
 fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) callconv(.winapi) w.LRESULT {
     const self = blk: {
         const userdata: usize = @bitCast(w.GetWindowLongPtrW(window, w.GWLP_USERDATA));
@@ -1631,18 +1657,8 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
     };
 
     // when both shifts are pressed, only one keyup message is sent
-    if (self.left_shift) {
-        if (w.GetAsyncKeyState(w.VK_LSHIFT) == 0) {
-            self.left_shift = false;
-            internal.eventFn(self.event_fn_data, .{ .button_release = .left_shift });
-        }
-    }
-    if (self.right_shift) {
-        if (w.GetAsyncKeyState(w.VK_RSHIFT) == 0) {
-            self.right_shift = false;
-            internal.eventFn(self.event_fn_data, .{ .button_release = .right_shift });
-        }
-    }
+    self.releaseIfUp(&self.left_shift, w.VK_LSHIFT, .left_shift);
+    self.releaseIfUp(&self.right_shift, w.VK_RSHIFT, .right_shift);
 
     switch (msg) {
         w.WM_SYSCOMMAND => {
@@ -1707,6 +1723,7 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
             return 0;
         },
         w.WM_SETFOCUS => {
+            self.pushModifiers();
             internal.eventFn(self.event_fn_data, .focused);
             if (self.relative_mouse) {
                 self.clipCursor();
@@ -1831,14 +1848,7 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 }
 
                 if (modifier != null) {
-                    internal.eventFn(self.event_fn_data, .{
-                        .modifiers = .{
-                            .control = (w.GetAsyncKeyState(w.VK_CONTROL) < 0),
-                            .shift = (w.GetAsyncKeyState(w.VK_SHIFT) < 0),
-                            .alt = (w.GetAsyncKeyState(w.VK_MENU) < 0),
-                            .gui = (w.GetAsyncKeyState(w.VK_LWIN) < 0 or w.GetAsyncKeyState(w.VK_RWIN) < 0),
-                        },
-                    });
+                    internal.eventFn(self.event_fn_data, .{ .modifiers = currentModifiers() });
                 }
             }
             return 0;
