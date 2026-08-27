@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const wio = @import("wio");
 const vk = @import("vulkan");
 
@@ -555,7 +556,12 @@ fn loop() !bool {
                     try createSurfaceAndSwapchain();
                 }
             },
-            .hidden => visible = false,
+            .hidden => {
+                visible = false;
+                if (builtin.abi.isAndroid()) {
+                    destroySurfaceAndSwapchain();
+                }
+            },
             .draw => {
                 if (visible and surface != .null_handle) {
                     drawFrame() catch |err| switch (err) {
