@@ -241,6 +241,10 @@ pub const Window = struct {
         java.env.*.*.CallVoidMethod.?(java.env, java.activity, java.setClipboardText, text_j);
     }
 
+    pub fn setPrimaryText(_: *Window, _: []const u8) void {}
+
+    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
         const text_j = java.env.*.*.CallObjectMethod.?(java.env, java.activity, java.getClipboardText) orelse return;
         defer java.env.*.*.DeleteLocalRef.?(java.env, text_j);

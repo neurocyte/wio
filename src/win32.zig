@@ -530,6 +530,10 @@ pub const Window = struct {
         }
     }
 
+    pub fn setPrimaryText(_: *Window, _: []const u8) void {}
+
+    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
         if (w.OpenClipboard(null) == 0) return;
         defer _ = w.CloseClipboard();

@@ -344,6 +344,20 @@ pub const Window = union {
         }
     }
 
+    pub fn setPrimaryText(self: *Window, text: []const u8) void {
+        switch (active) {
+            .x11 => self.x11.setPrimaryText(text),
+            .wayland => self.wayland.setPrimaryText(text),
+        }
+    }
+
+    pub fn getPrimaryText(self: *Window, callback: wio.Callback([]const u8)) void {
+        switch (active) {
+            .x11 => self.x11.getPrimaryText(callback),
+            .wayland => self.wayland.getPrimaryText(callback),
+        }
+    }
+
     pub fn createFramebuffer(self: *Window, size: wio.Size) !Framebuffer {
         switch (active) {
             .x11 => return .{ .x11 = try self.x11.createFramebuffer(size) },

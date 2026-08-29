@@ -262,6 +262,14 @@ pub const Window = struct {
         self.backend.getClipboardText(callback);
     }
 
+    pub fn setPrimaryText(self: *Window, text: []const u8) void {
+        self.backend.setPrimaryText(text);
+    }
+
+    pub fn getPrimaryText(self: *Window, callback: Callback([]const u8)) void {
+        self.backend.getPrimaryText(callback);
+    }
+
     pub fn createFramebuffer(self: *Window, size: Size) !Framebuffer {
         assertFeature(.framebuffer);
         return .{ .backend = try self.backend.createFramebuffer(size) };

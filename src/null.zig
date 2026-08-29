@@ -108,6 +108,10 @@ pub const Window = struct {
         _ = text;
     }
 
+    pub fn setPrimaryText(_: *Window, _: []const u8) void {}
+
+    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+
     pub fn getClipboardText(self: *Window, callback: wio.Callback([]const u8)) void {
         _ = self;
         _ = callback;
