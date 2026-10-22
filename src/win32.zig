@@ -433,6 +433,23 @@ pub const Window = struct {
         _ = w.SetCursorPos(pos.x, pos.y);
     }
 
+    fn releaseMouseCapture(self: *Window) void {
+        _ = w.ReleaseCapture();
+        var pos: w.POINT = undefined;
+        if (w.GetCursorPos(&pos) == 0 or w.WindowFromPoint(pos) == self.window) return;
+        if (self.tracking) {
+            var track: w.TRACKMOUSEEVENT = .{
+                .cbSize = @sizeOf(w.TRACKMOUSEEVENT),
+                .dwFlags = w.TME_LEAVE | w.TME_CANCEL,
+                .hwndTrack = self.window,
+                .dwHoverTime = 0,
+            };
+            _ = w.TrackMouseEvent(&track);
+            self.tracking = false;
+        }
+        internal.eventFn(self.event_fn_data, .mouse_leave);
+    }
+
     pub fn disableRelativeMouse(self: *Window) void {
         self.relative_mouse = false;
         _ = w.ClipCursor(null);
@@ -1880,8 +1897,16 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 w.WM_MBUTTONDOWN,
                 w.WM_RBUTTONDOWN,
                 w.WM_XBUTTONDOWN,
-                => internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_press = button_event }),
-                else => internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = button_event }),
+                => {
+                    // capture the mouse so a drag keeps reporting motion and the release outside the window
+                    if (!self.relative_mouse and w.GetCapture() != window) _ = w.SetCapture(window);
+                    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_press = button_event });
+                },
+                else => {
+                    internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .button_release = button_event });
+                    const held = w.MK_LBUTTON | w.MK_RBUTTON | w.MK_MBUTTON | w.MK_XBUTTON1 | w.MK_XBUTTON2;
+                    if (LOWORD(wParam) & held == 0 and w.GetCapture() == window) self.releaseMouseCapture();
+                },
             }
 
             return if (msg == w.WM_XBUTTONDOWN or msg == w.WM_XBUTTONUP) w.TRUE else 0;
@@ -1892,7 +1917,7 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .mouse = .{ .position = .{ .x = LOSHORT(lParam), .y = HISHORT(lParam) }, .modifiers = modifiers } });
             }
 
-            if (!self.tracking) {
+            if (!self.tracking and w.GetCapture() != window) {
                 var track: w.TRACKMOUSEEVENT = .{
                     .cbSize = @sizeOf(w.TRACKMOUSEEVENT),
                     .dwFlags = w.TME_LEAVE,
@@ -1931,7 +1956,8 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
             return 0;
         },
         w.WM_MOUSELEAVE => {
-            internal.eventFn(self.event_fn_data, .mouse_leave);
+            // while captured, leave is reported by releaseMouseCapture instead
+            if (w.GetCapture() != window) internal.eventFn(self.event_fn_data, .mouse_leave);
             self.tracking = false;
             return 0;
         },
