@@ -2,7 +2,7 @@
     .name = .wio,
     .version = "0.0.0",
     .fingerprint = 0xc7cd0be0afeb11f3,
-    .minimum_zig_version = "0.17.0-dev.2122+3e15e99e6",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .win32 = .{
             .url = "https://github.com/ypsvlq/win32/archive/5edca53ffbd415e19170f022932d5b7063e2cccf.tar.gz",
