@@ -247,13 +247,15 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+    pub fn getPrimaryText(_: *Window, callback: wio.Callback([]const u8)) void {
+        callback.function(callback.data, "");
+    }
 
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
-        const text_j = java.env.*.*.CallObjectMethod.?(java.env, java.activity, java.getClipboardText) orelse return;
+        const text_j = java.env.*.*.CallObjectMethod.?(java.env, java.activity, java.getClipboardText) orelse return callback.function(callback.data, "");
         defer java.env.*.*.DeleteLocalRef.?(java.env, text_j);
 
-        const text_z = java.env.*.*.GetStringUTFChars.?(java.env, text_j, null) orelse return;
+        const text_z = java.env.*.*.GetStringUTFChars.?(java.env, text_j, null) orelse return callback.function(callback.data, "");
         defer java.env.*.*.ReleaseStringUTFChars.?(java.env, text_j, text_z);
 
         callback.function(callback.data, std.mem.sliceTo(text_z, 0));

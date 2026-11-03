@@ -630,17 +630,23 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+    pub fn getPrimaryText(_: *Window, callback: wio.Callback([]const u8)) void {
+        callback.function(callback.data, "");
+    }
 
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
-        if (w.OpenClipboard(null) == 0) return;
-        defer _ = w.CloseClipboard();
-        const mem = w.GetClipboardData(w.CF_UNICODETEXT) orelse return;
-        const text_w: [*:0]const u16 = @ptrCast(@alignCast(w.GlobalLock(mem) orelse return));
-        defer _ = w.GlobalUnlock(mem);
-        const text = std.unicode.utf16LeToUtf8Alloc(internal.allocator, std.mem.sliceTo(text_w, 0)) catch return;
+        const text = readClipboardText() orelse return callback.function(callback.data, "");
         defer internal.allocator.free(text);
         callback.function(callback.data, text);
+    }
+
+    fn readClipboardText() ?[]u8 {
+        if (w.OpenClipboard(null) == 0) return null;
+        defer _ = w.CloseClipboard();
+        const mem = w.GetClipboardData(w.CF_UNICODETEXT) orelse return null;
+        const text_w: [*:0]const u16 = @ptrCast(@alignCast(w.GlobalLock(mem) orelse return null));
+        defer _ = w.GlobalUnlock(mem);
+        return std.unicode.utf16LeToUtf8Alloc(internal.allocator, std.mem.sliceTo(text_w, 0)) catch null;
     }
 
     pub fn createFramebuffer(_: *Window, size: wio.Size) !Framebuffer {

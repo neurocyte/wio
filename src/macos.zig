@@ -292,7 +292,9 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+    pub fn getPrimaryText(_: *Window, callback: wio.Callback([]const u8)) void {
+        callback.function(callback.data, "");
+    }
 
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
         var len: usize = undefined;
@@ -300,6 +302,8 @@ pub const Window = struct {
             const text = ptr[0..len];
             defer internal.allocator.free(text);
             callback.function(callback.data, text);
+        } else {
+            callback.function(callback.data, "");
         }
     }
 

@@ -114,11 +114,12 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: wio.Callback([]const u8)) void {}
+    pub fn getPrimaryText(_: *Window, callback: wio.Callback([]const u8)) void {
+        callback.function(callback.data, "");
+    }
 
-    pub fn getClipboardText(self: *Window, callback: wio.Callback([]const u8)) void {
-        _ = self;
-        _ = callback;
+    pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
+        callback.function(callback.data, "");
     }
 
     pub fn createFramebuffer(self: *Window, size: wio.Size) !Framebuffer {

@@ -623,36 +623,23 @@ pub const Window = struct {
     }
 
     pub fn getPrimaryText(_: *Window, callback: wio.Callback([]const u8)) void {
-        if (globals.primary_offer == null) return;
+        if (globals.primary_offer == null) return callback.function(callback.data, "");
         var pipe: [2]i32 = undefined;
-        if (std.c.pipe(&pipe) == -1) return;
-        defer _ = std.c.close(pipe[0]);
+        if (std.c.pipe(&pipe) == -1) return callback.function(callback.data, "");
         h.zwp_primary_selection_offer_v1_receive(globals.primary_offer, "text/plain;charset=utf-8", pipe[1]);
-        _ = c.wl_display_roundtrip(globals.display);
-        _ = std.c.close(pipe[1]);
-
-        var buffer: [1024]u8 = undefined;
-        var text: std.ArrayList(u8) = .empty;
-        defer text.deinit(internal.allocator);
-        while (true) {
-            const count = std.c.read(pipe[0], &buffer, buffer.len);
-            if (std.c.errno(count) != .SUCCESS) {
-                return;
-            } else if (count == 0) {
-                callback.function(callback.data, text.items);
-                break;
-            } else {
-                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return;
-            }
-        }
+        readOfferPipe(pipe, callback);
     }
 
     pub fn getClipboardText(_: *Window, callback: wio.Callback([]const u8)) void {
-        if (globals.data_offer == null) return;
+        if (globals.data_offer == null) return callback.function(callback.data, "");
         var pipe: [2]i32 = undefined;
-        if (std.c.pipe(&pipe) == -1) return;
-        defer _ = std.c.close(pipe[0]);
+        if (std.c.pipe(&pipe) == -1) return callback.function(callback.data, "");
         h.wl_data_offer_receive(globals.data_offer, "text/plain;charset=utf-8", pipe[1]);
+        readOfferPipe(pipe, callback);
+    }
+
+    fn readOfferPipe(pipe: [2]i32, callback: wio.Callback([]const u8)) void {
+        defer _ = std.c.close(pipe[0]);
         _ = c.wl_display_roundtrip(globals.display);
         _ = std.c.close(pipe[1]);
 
@@ -662,12 +649,11 @@ pub const Window = struct {
         while (true) {
             const count = std.c.read(pipe[0], &buffer, buffer.len);
             if (std.c.errno(count) != .SUCCESS) {
-                return;
+                return callback.function(callback.data, "");
             } else if (count == 0) {
-                callback.function(callback.data, text.items);
-                break;
+                return callback.function(callback.data, text.items);
             } else {
-                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return;
+                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return callback.function(callback.data, "");
             }
         }
     }
