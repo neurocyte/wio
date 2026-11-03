@@ -112,12 +112,12 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: *const fn (?*anyopaque, []const u8) void, _: ?*anyopaque) void {}
+    pub fn getPrimaryText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
+        clipboardTextFn(clipboard_text_fn_data, "");
+    }
 
-    pub fn getClipboardText(self: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        _ = self;
-        _ = clipboardTextFn;
-        _ = clipboard_text_fn_data;
+    pub fn getClipboardText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
+        clipboardTextFn(clipboard_text_fn_data, "");
     }
 
     pub fn getDropData(self: *Window, allocator: std.mem.Allocator) wio.DropData {

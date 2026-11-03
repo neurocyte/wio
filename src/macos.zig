@@ -325,7 +325,9 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: *const fn (?*anyopaque, []const u8) void, _: ?*anyopaque) void {}
+    pub fn getPrimaryText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
+        clipboardTextFn(clipboard_text_fn_data, "");
+    }
 
     pub fn getClipboardText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
         var len: usize = undefined;
@@ -333,6 +335,8 @@ pub const Window = struct {
             const text = ptr[0..len];
             defer internal.allocator.free(text);
             clipboardTextFn(clipboard_text_fn_data, text);
+        } else {
+            clipboardTextFn(clipboard_text_fn_data, "");
         }
     }
 

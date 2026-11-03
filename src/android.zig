@@ -252,13 +252,15 @@ pub const Window = struct {
 
     pub fn setPrimaryText(_: *Window, _: []const u8) void {}
 
-    pub fn getPrimaryText(_: *Window, _: *const fn (?*anyopaque, []const u8) void, _: ?*anyopaque) void {}
+    pub fn getPrimaryText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
+        clipboardTextFn(clipboard_text_fn_data, "");
+    }
 
     pub fn getClipboardText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        const text_j = java.env.*.*.CallObjectMethod.?(java.env, java.activity, java.getClipboardText) orelse return;
+        const text_j = java.env.*.*.CallObjectMethod.?(java.env, java.activity, java.getClipboardText) orelse return clipboardTextFn(clipboard_text_fn_data, "");
         defer java.env.*.*.DeleteLocalRef.?(java.env, text_j);
 
-        const text_z = java.env.*.*.GetStringUTFChars.?(java.env, text_j, null) orelse return;
+        const text_z = java.env.*.*.GetStringUTFChars.?(java.env, text_j, null) orelse return clipboardTextFn(clipboard_text_fn_data, "");
         defer java.env.*.*.ReleaseStringUTFChars.?(java.env, text_j, text_z);
 
         clipboardTextFn(clipboard_text_fn_data, std.mem.sliceTo(text_z, 0));

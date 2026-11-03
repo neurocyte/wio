@@ -625,36 +625,23 @@ pub const Window = struct {
     }
 
     pub fn getPrimaryText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        if (globals.primary_offer == null) return;
+        if (globals.primary_offer == null) return clipboardTextFn(clipboard_text_fn_data, "");
         var pipe: [2]i32 = undefined;
-        if (std.c.pipe(&pipe) == -1) return;
-        defer _ = std.c.close(pipe[0]);
+        if (std.c.pipe(&pipe) == -1) return clipboardTextFn(clipboard_text_fn_data, "");
         h.zwp_primary_selection_offer_v1_receive(globals.primary_offer, "text/plain;charset=utf-8", pipe[1]);
-        _ = c.wl_display_roundtrip(globals.display);
-        _ = std.c.close(pipe[1]);
-
-        var buffer: [1024]u8 = undefined;
-        var text: std.ArrayList(u8) = .empty;
-        defer text.deinit(internal.allocator);
-        while (true) {
-            const count = std.c.read(pipe[0], &buffer, buffer.len);
-            if (std.c.errno(count) != .SUCCESS) {
-                return;
-            } else if (count == 0) {
-                clipboardTextFn(clipboard_text_fn_data, text.items);
-                break;
-            } else {
-                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return;
-            }
-        }
+        readOfferPipe(pipe, clipboardTextFn, clipboard_text_fn_data);
     }
 
     pub fn getClipboardText(_: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        if (globals.data_offer == null) return;
+        if (globals.data_offer == null) return clipboardTextFn(clipboard_text_fn_data, "");
         var pipe: [2]i32 = undefined;
-        if (std.c.pipe(&pipe) == -1) return;
-        defer _ = std.c.close(pipe[0]);
+        if (std.c.pipe(&pipe) == -1) return clipboardTextFn(clipboard_text_fn_data, "");
         h.wl_data_offer_receive(globals.data_offer, "text/plain;charset=utf-8", pipe[1]);
+        readOfferPipe(pipe, clipboardTextFn, clipboard_text_fn_data);
+    }
+
+    fn readOfferPipe(pipe: [2]i32, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
+        defer _ = std.c.close(pipe[0]);
         _ = c.wl_display_roundtrip(globals.display);
         _ = std.c.close(pipe[1]);
 
@@ -664,12 +651,11 @@ pub const Window = struct {
         while (true) {
             const count = std.c.read(pipe[0], &buffer, buffer.len);
             if (std.c.errno(count) != .SUCCESS) {
-                return;
+                return clipboardTextFn(clipboard_text_fn_data, "");
             } else if (count == 0) {
-                clipboardTextFn(clipboard_text_fn_data, text.items);
-                break;
+                return clipboardTextFn(clipboard_text_fn_data, text.items);
             } else {
-                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return;
+                text.appendSlice(internal.allocator, buffer[0..@intCast(count)]) catch return clipboardTextFn(clipboard_text_fn_data, "");
             }
         }
     }

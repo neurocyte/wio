@@ -99,6 +99,8 @@ var atoms: blk: {
         "TARGETS",
         "INCR",
         "SELECTION",
+        "WIO_CLIPBOARD",
+        "WIO_PRIMARY",
     } ++ if (build_options.drop) .{
         "XdndAware",
         "XdndEnter",
@@ -117,6 +119,30 @@ var atoms: blk: {
     const attrs: [names.len]std.builtin.Type.Struct.FieldAttributes = @splat(.{});
     break :blk @Struct(.@"extern", null, &names, &types, &attrs);
 } = undefined;
+
+const SelectionRead = struct {
+    clipboardTextFn: ?*const fn (?*anyopaque, []const u8) void = null,
+    clipboard_text_fn_data: ?*anyopaque = null,
+    property: h.Atom = h.None,
+    pending: u32 = 0,
+    incr: bool = false,
+    incr_text: std.ArrayList(u8) = .empty,
+
+    fn start(self: *SelectionRead, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque, property: h.Atom) void {
+        self.clipboardTextFn = clipboardTextFn;
+        self.clipboard_text_fn_data = clipboard_text_fn_data;
+        self.property = property;
+        self.pending += 1;
+    }
+
+    fn finish(self: *SelectionRead, text: []const u8) void {
+        self.incr = false;
+        if (self.pending == 0) return;
+        self.pending -= 1;
+        if (self.clipboardTextFn) |clipboardTextFn| clipboardTextFn(self.clipboard_text_fn_data, text);
+        self.incr_text.clearRetainingCapacity();
+    }
+};
 
 pub var globals: struct {
     libX11: DynLib = undefined,
@@ -281,10 +307,8 @@ pub const Window = struct {
     position: wio.Position,
     size: wio.Size,
     warped: bool = false,
-    clipboardTextFn: ?*const fn (?*anyopaque, []const u8) void = null,
-    clipboard_text_fn_data: ?*anyopaque = null,
-    clipboard_incr: bool = false,
-    clipboard_incr_text: std.ArrayList(u8) = .empty,
+    clipboard_read: SelectionRead = .{},
+    primary_read: SelectionRead = .{},
     drop: if (build_options.drop) struct {
         xdnd_source: h.Window = 0,
         xdnd_req: h.Atom = h.None,
@@ -446,7 +470,8 @@ pub const Window = struct {
         _ = c.XFlush(globals.display);
 
         self.preedit_string.deinit(internal.allocator);
-        self.clipboard_incr_text.deinit(internal.allocator);
+        self.clipboard_read.incr_text.deinit(internal.allocator);
+        self.primary_read.incr_text.deinit(internal.allocator);
 
         internal.allocator.destroy(self);
     }
@@ -604,9 +629,8 @@ pub const Window = struct {
     }
 
     pub fn getClipboardText(self: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        self.clipboardTextFn = clipboardTextFn;
-        self.clipboard_text_fn_data = clipboard_text_fn_data;
-        _ = c.XConvertSelection(globals.display, atoms.CLIPBOARD, atoms.UTF8_STRING, atoms.SELECTION, self.window, h.CurrentTime);
+        self.clipboard_read.start(clipboardTextFn, clipboard_text_fn_data, atoms.WIO_CLIPBOARD);
+        _ = c.XConvertSelection(globals.display, atoms.CLIPBOARD, atoms.UTF8_STRING, atoms.WIO_CLIPBOARD, self.window, h.CurrentTime);
         _ = c.XFlush(globals.display);
     }
 
@@ -618,10 +642,15 @@ pub const Window = struct {
     }
 
     pub fn getPrimaryText(self: *Window, clipboardTextFn: *const fn (?*anyopaque, []const u8) void, clipboard_text_fn_data: ?*anyopaque) void {
-        self.clipboardTextFn = clipboardTextFn;
-        self.clipboard_text_fn_data = clipboard_text_fn_data;
-        _ = c.XConvertSelection(globals.display, h.XA_PRIMARY, atoms.UTF8_STRING, atoms.SELECTION, self.window, h.CurrentTime);
+        self.primary_read.start(clipboardTextFn, clipboard_text_fn_data, atoms.WIO_PRIMARY);
+        _ = c.XConvertSelection(globals.display, h.XA_PRIMARY, atoms.UTF8_STRING, atoms.WIO_PRIMARY, self.window, h.CurrentTime);
         _ = c.XFlush(globals.display);
+    }
+
+    fn selectionRead(self: *Window, selection: h.Atom) ?*SelectionRead {
+        if (selection == atoms.CLIPBOARD) return &self.clipboard_read;
+        if (selection == h.XA_PRIMARY) return &self.primary_read;
+        return null;
     }
 
     pub fn getDropData(self: *Window, allocator: std.mem.Allocator) wio.DropData {
@@ -1236,49 +1265,42 @@ fn handle(event: *h.XEvent) void {
 
                 window.drop.xdnd_source = 0;
                 window.drop.xdnd_req = h.None;
-            } else if (event.xselection.property != h.None) {
-                if (window.clipboardTextFn) |clipboardTextFn| {
+            } else if (window.selectionRead(event.xselection.selection)) |read| {
+                if (event.xselection.property == h.None) {
+                    read.finish("");
+                } else {
                     var actual_type: h.Atom = undefined;
                     var actual_format: c_int = undefined;
                     var nitems: c_ulong = undefined;
                     var bytes_after: c_ulong = undefined;
                     var property: [*]u8 = undefined;
-                    _ = c.XGetWindowProperty(globals.display, window.window, atoms.SELECTION, 0, std.math.maxInt(c_long), h.True, h.AnyPropertyType, &actual_type, &actual_format, &nitems, &bytes_after, @ptrCast(&property));
+                    _ = c.XGetWindowProperty(globals.display, window.window, read.property, 0, std.math.maxInt(c_long), h.True, h.AnyPropertyType, &actual_type, &actual_format, &nitems, &bytes_after, @ptrCast(&property));
                     defer _ = c.XFree(property);
 
                     if (actual_type == atoms.INCR) {
-                        window.clipboard_incr = true;
-                        window.clipboard_incr_text.clearRetainingCapacity();
+                        read.incr = true;
+                        read.incr_text.clearRetainingCapacity();
                     } else {
-                        window.clipboard_incr = false;
-                        clipboardTextFn(window.clipboard_text_fn_data, property[0..nitems]);
-                        window.clipboardTextFn = null;
+                        read.finish(property[0..nitems]);
                     }
                 }
             }
         },
         h.PropertyNotify => {
-            if (window.clipboard_incr and event.xproperty.atom == atoms.SELECTION and event.xproperty.state == h.PropertyNewValue) {
-                if (window.clipboardTextFn) |clipboardTextFn| {
-                    var actual_type: h.Atom = undefined;
-                    var actual_format: c_int = undefined;
-                    var nitems: c_ulong = undefined;
-                    var bytes_after: c_ulong = undefined;
-                    var property: [*]u8 = undefined;
-                    _ = c.XGetWindowProperty(globals.display, window.window, atoms.SELECTION, 0, std.math.maxInt(c_long), h.True, h.AnyPropertyType, &actual_type, &actual_format, &nitems, &bytes_after, @ptrCast(&property));
-                    defer _ = c.XFree(property);
+            for ([_]*SelectionRead{ &window.clipboard_read, &window.primary_read }) |read| {
+                if (!read.incr or event.xproperty.atom != read.property or event.xproperty.state != h.PropertyNewValue) continue;
+                var actual_type: h.Atom = undefined;
+                var actual_format: c_int = undefined;
+                var nitems: c_ulong = undefined;
+                var bytes_after: c_ulong = undefined;
+                var property: [*]u8 = undefined;
+                _ = c.XGetWindowProperty(globals.display, window.window, read.property, 0, std.math.maxInt(c_long), h.True, h.AnyPropertyType, &actual_type, &actual_format, &nitems, &bytes_after, @ptrCast(&property));
+                defer _ = c.XFree(property);
 
-                    if (nitems == 0) {
-                        clipboardTextFn(window.clipboard_text_fn_data, window.clipboard_incr_text.items);
-                        window.clipboardTextFn = null;
-                        window.clipboard_incr = false;
-                        window.clipboard_incr_text.clearRetainingCapacity();
-                    } else {
-                        window.clipboard_incr_text.appendSlice(internal.allocator, property[0..nitems]) catch {
-                            window.clipboard_incr = false;
-                            window.clipboard_incr_text.clearRetainingCapacity();
-                        };
-                    }
+                if (nitems == 0) {
+                    read.finish(read.incr_text.items);
+                } else {
+                    read.incr_text.appendSlice(internal.allocator, property[0..nitems]) catch read.finish("");
                 }
             }
         },
