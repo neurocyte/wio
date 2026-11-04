@@ -30,6 +30,7 @@ var mm_device_enumerator: *w.IMMDeviceEnumerator = undefined;
 var mm_notification_client = MMNotificationClient{};
 var audioDefaultOutputFn: ?*const fn (wio.AudioDevice) void = null;
 var audioDefaultInputFn: ?*const fn (wio.AudioDevice) void = null;
+var altgr = false;
 
 pub fn init(options: wio.InitOptions) !void {
     const instance = w.GetModuleHandleW(null);
@@ -541,6 +542,7 @@ pub const Window = struct {
         self.releaseIfUp(&self.right_control, w.VK_RCONTROL, .right_control);
         self.releaseIfUp(&self.left_alt, w.VK_LMENU, .left_alt);
         self.releaseIfUp(&self.right_alt, w.VK_RMENU, .right_alt);
+        if (!self.right_alt) altgr = false;
         const modifiers = currentModifiers();
         if (!std.meta.eql(self.last_modifiers, modifiers)) {
             self.last_modifiers = modifiers;
@@ -1671,11 +1673,28 @@ fn helperWindowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM
 
 fn currentModifiers() wio.Modifiers {
     return .{
-        .control = (w.GetAsyncKeyState(w.VK_CONTROL) < 0),
+        .control = (w.GetAsyncKeyState(if (altgr) w.VK_RCONTROL else w.VK_CONTROL) < 0),
         .shift = (w.GetAsyncKeyState(w.VK_SHIFT) < 0),
-        .alt = (w.GetAsyncKeyState(w.VK_MENU) < 0),
+        .alt = (w.GetAsyncKeyState(if (altgr) w.VK_LMENU else w.VK_MENU) < 0),
         .gui = (w.GetAsyncKeyState(w.VK_LWIN) < 0 or w.GetAsyncKeyState(w.VK_RWIN) < 0),
     };
+}
+
+fn layoutChar(vk: w.WPARAM, scancode: u9, shift: bool) u21 {
+    var state: [256]u8 = @splat(0);
+    if (shift) state[w.VK_SHIFT] = 0x80;
+    var buf: [4]u16 = undefined;
+    const do_not_change_state = 0x4;
+    const n = w.ToUnicodeEx(@truncate(vk), scancode, &state, &buf, buf.len, do_not_change_state, w.GetKeyboardLayout(0));
+    const len: usize = switch (n) {
+        -1 => 1,
+        1, 2 => @intCast(n),
+        else => return 0,
+    };
+    var it = std.unicode.Utf16LeIterator.init(buf[0..len]);
+    const char = (it.nextCodepoint() catch return 0) orelse return 0;
+    if ((it.nextCodepoint() catch return 0) != null or char < ' ' or char == 0x7f) return 0;
+    return char;
 }
 
 fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) callconv(.winapi) w.LRESULT {
@@ -1846,9 +1865,11 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                     next.time == w.GetMessageTime() and
                     (HIWORD(next.lParam) & (0x1FF | w.KF_UP)) == (0x138 | (flags & w.KF_UP)))
                 {
+                    if (flags & w.KF_UP == 0) altgr = true;
                     return 0;
                 }
             }
+            if (scancode == 0x138 and flags & w.KF_UP != 0) altgr = false;
 
             if (scancodeToButton(scancode)) |button| {
                 const modifier = switch (button) {
@@ -1865,7 +1886,11 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
                 };
 
                 const modifiers = currentModifiers();
-                const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+                var button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+                if (modifier == null) {
+                    button_event.char = layoutChar(wParam, scancode, false);
+                    button_event.shifted_char = layoutChar(wParam, scancode, true);
+                }
                 if (flags & w.KF_UP == 0) {
                     var repeat = (flags & w.KF_REPEAT != 0);
                     if (modifier) |ptr| {
