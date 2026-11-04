@@ -950,10 +950,15 @@ export fn wioPreviewReset(self: *Window) void {
     internal.eventFn(self.event_fn_data, .preview_reset);
 }
 
-export fn wioKey(self: *Window, key: u16, event: u8, modifiers: u32) void {
+export fn wioKey(self: *Window, key: u16, event: u8, modifiers: u32, char: u32, shifted_char: u32) void {
     if (keycodeToButton(key)) |button| {
         const mods = decodeModifiers(modifiers);
-        const button_event: wio.Button.Event = .{ .button = button, .modifiers = mods };
+        const button_event: wio.Button.Event = .{
+            .button = button,
+            .modifiers = mods,
+            .char = std.math.cast(u21, char) orelse 0,
+            .shifted_char = std.math.cast(u21, shifted_char) orelse 0,
+        };
         internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, switch (event) {
             0 => .{ .button_press = button_event },
             1 => .{ .button_repeat = button_event },

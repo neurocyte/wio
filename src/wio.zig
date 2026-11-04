@@ -898,6 +898,10 @@ pub const Button = enum {
     pub const Event = struct {
         button: Button,
         modifiers: Modifiers,
+        /// Character of the key in the active keyboard layout without modifiers, 0 if unknown.
+        char: u21 = 0,
+        /// Character of the key in the active keyboard layout with only shift, 0 if unknown.
+        shifted_char: u21 = 0,
     };
 };
 
