@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 #include <IOKit/hid/IOHIDKeys.h>
+#include <dlfcn.h>
 
 extern void wioClose(void *);
 extern void wioFocused(void *);
@@ -17,7 +18,7 @@ extern void wioColorScheme(void *, uint8_t);
 extern void wioChars(void *, const char *);
 extern void wioPreviewChars(void *, const char *, uint16_t, uint16_t);
 extern void wioPreviewReset(void *);
-extern void wioKey(void *, uint16_t, uint8_t, uint32_t);
+extern void wioKey(void *, uint16_t, uint8_t, uint32_t, uint32_t, uint32_t);
 extern void wioButtonPress(void *, uint8_t, uint32_t);
 extern void wioButtonRelease(void *, uint8_t, uint32_t);
 extern void wioMouse(void *, int16_t, int16_t, uint32_t);
@@ -45,6 +46,39 @@ static void warpCursor(NSWindow *window) {
     NSRect frame = [window frame];
     NSRect screen = [[NSScreen mainScreen] frame];
     CGWarpMouseCursorPosition(CGPointMake(CGRectGetMidX(frame), CGRectGetMaxY(screen) - CGRectGetMidY(frame)));
+}
+
+static UInt32 layoutChar(NSEvent *event, NSEventModifierFlags modifiers) {
+    NSString *chars = [event charactersByApplyingModifiers:modifiers];
+    NSUInteger length = [chars length];
+    if (length == 0) return 0;
+    UInt32 c = [chars characterAtIndex:0];
+    if (CFStringIsSurrogateHighCharacter(c) && length == 2) {
+        c = CFStringGetLongCharacterForSurrogatePair(c, [chars characterAtIndex:1]);
+    } else if (length != 1) {
+        return 0;
+    }
+    // function keys report private use characters
+    if (c < 0x20 || (c >= 0xF700 && c <= 0xF8FF)) return 0;
+    return c;
+}
+
+static UInt16 physicalKeyCode(NSEvent *event) {
+    UInt16 code = [event keyCode];
+    // 0x0A is kVK_ISO_Section, 0x32 is kVK_ANSI_Grave
+    if (code != 0x0A && code != 0x32) return code;
+    static UInt32 (*getLayoutType)(SInt16) = NULL;
+    static BOOL loaded = NO;
+    if (!loaded) {
+        loaded = YES;
+        void *carbon = dlopen("/System/Library/Frameworks/Carbon.framework/Carbon", RTLD_LAZY);
+        if (carbon) getLayoutType = (UInt32 (*)(SInt16))dlsym(carbon, "KBGetLayoutType");
+    }
+    if (!getLayoutType) return code;
+    SInt16 keyboardType = (SInt16)CGEventGetIntegerValueField([event CGEvent], kCGKeyboardEventKeyboardType);
+    const UInt32 isoLayout = 0x49534F20; // 'ISO ', kKeyboardISO
+    if (getLayoutType(keyboardType) != isoLayout) return code;
+    return code == 0x0A ? 0x32 : 0x0A;
 }
 
 @interface WioApplicationDelegate : NSObject <NSApplicationDelegate>
@@ -331,14 +365,14 @@ static void warpCursor(NSWindow *window) {
 }
 
 - (void)keyDown:(NSEvent *)event {
-    wioKey(zig, [event keyCode], [event isARepeat], [event modifierFlags]);
+    wioKey(zig, physicalKeyCode(event), [event isARepeat], [event modifierFlags], layoutChar(event, 0), layoutChar(event, NSEventModifierFlagShift));
     if (textInput) {
         [[NSTextInputContext currentInputContext] handleEvent:event];
     }
 }
 
 - (void)keyUp:(NSEvent *)event {
-    wioKey(zig, [event keyCode], 2, [event modifierFlags]);
+    wioKey(zig, physicalKeyCode(event), 2, [event modifierFlags], layoutChar(event, 0), layoutChar(event, NSEventModifierFlagShift));
 }
 
 - (void)flagsChanged:(NSEvent *)event {
@@ -354,13 +388,13 @@ static void warpCursor(NSWindow *window) {
         case 0x3D: flag = NX_DEVICERALTKEYMASK; break;
         case 0x3E: flag = NX_DEVICERCTLKEYMASK; break;
         case 0x39:
-            wioKey(zig, key, 0, [event modifierFlags]);
-            wioKey(zig, key, 2, [event modifierFlags]);
+            wioKey(zig, key, 0, [event modifierFlags], 0, 0);
+            wioKey(zig, key, 2, [event modifierFlags], 0, 0);
             return;
         default: return;
     }
     NSUInteger modifiers = [event modifierFlags];
-    wioKey(zig, key, modifiers & flag ? 0 : 2, modifiers);
+    wioKey(zig, key, modifiers & flag ? 0 : 2, modifiers, 0, 0);
     wioModifiers(zig, modifiers);
 }
 
