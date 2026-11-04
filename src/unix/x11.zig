@@ -5,6 +5,7 @@ const wio = @import("../wio.zig");
 const internal = @import("../wio.internal.zig");
 const unix = @import("../unix.zig");
 const DynLib = @import("DynLib.zig");
+const keysym = @import("keysym.zig");
 const log = std.log.scoped(.wio);
 
 var imports: extern struct {
@@ -22,6 +23,7 @@ var imports: extern struct {
     XkbGetMap: *const fn (?*h.Display, c_uint, c_uint) callconv(.c) h.XkbDescPtr,
     XkbFreeKeyboard: *const fn (h.XkbDescPtr, c_uint, c_int) callconv(.c) void,
     XkbGetNames: *const fn (?*h.Display, c_uint, h.XkbDescPtr) callconv(.c) c_int,
+    XkbKeycodeToKeysym: *const fn (?*h.Display, h.KeyCode, c_int, c_int) callconv(.c) h.KeySym,
     XGetDefault: *const fn (?*h.Display, [*c]const u8, [*c]const u8) callconv(.c) [*c]u8,
     XFlush: *const fn (?*h.Display) callconv(.c) c_int,
     XCreateWindow: *const fn (?*h.Display, h.Window, c_int, c_int, c_uint, c_uint, c_uint, c_int, c_uint, [*c]h.Visual, c_ulong, [*c]h.XSetWindowAttributes) callconv(.c) h.Window,
@@ -1165,7 +1167,7 @@ fn handle(event: *h.XEvent) void {
                 }
             }
             const button = globals.keycodes[event.xkey.keycode - 8];
-            if (button != .mouse_left) internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .button_release = .{ .button = button, .modifiers = modifiers } });
+            if (button != .mouse_left) internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, .{ .button_release = keyButtonEvent(button, &event.xkey, modifiers) });
         },
         h.ButtonPress => {
             const button: wio.Button = switch (event.xbutton.button) {
@@ -1309,12 +1311,28 @@ fn currentModifiers() wio.Modifiers {
     };
 }
 
+fn keyButtonEvent(button: wio.Button, event: *const h.XKeyEvent, modifiers: wio.Modifiers) wio.Button.Event {
+    return .{
+        .button = button,
+        .modifiers = modifiers,
+        .char = layoutChar(event, 0),
+        .shifted_char = layoutChar(event, 1),
+    };
+}
+
+fn layoutChar(event: *const h.XKeyEvent, level: c_int) u21 {
+    const group: c_int = @intCast((event.state >> 13) & 3);
+    const sym = c.XkbKeycodeToKeysym(globals.display, @intCast(event.keycode), group, level);
+    const sym32 = std.math.cast(u32, sym) orelse return 0;
+    return keysym.toChar(sym32, keysym.toUtf32(sym32));
+}
+
 fn handleKeyPress(window: *Window, event: *h.XEvent, repeat: bool) void {
     if (event.xkey.keycode != 0) {
         const button = globals.keycodes[event.xkey.keycode - 8];
         if (button != .mouse_left) {
             const modifiers = currentModifiers();
-            const button_event: wio.Button.Event = .{ .button = button, .modifiers = modifiers };
+            const button_event = keyButtonEvent(button, &event.xkey, modifiers);
             internal.sendInput(window.event_fn_data, &window.last_modifiers, modifiers, if (repeat) .{ .button_repeat = button_event } else .{ .button_press = button_event });
         }
     }
