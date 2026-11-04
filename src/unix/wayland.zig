@@ -5,6 +5,7 @@ const wio = @import("../wio.zig");
 const internal = @import("../wio.internal.zig");
 const unix = @import("../unix.zig");
 const DynLib = @import("DynLib.zig");
+const keysym = @import("keysym.zig");
 const log = std.log.scoped(.wio);
 
 var imports: extern struct {
@@ -28,6 +29,8 @@ var imports: extern struct {
     xkb_state_update_mask: *const fn (state: ?*h.struct_xkb_state, depressed_mods: h.xkb_mod_mask_t, latched_mods: h.xkb_mod_mask_t, locked_mods: h.xkb_mod_mask_t, depressed_layout: h.xkb_layout_index_t, latched_layout: h.xkb_layout_index_t, locked_layout: h.xkb_layout_index_t) callconv(.c) h.enum_xkb_state_component,
     xkb_state_key_get_one_sym: *const fn (state: ?*h.struct_xkb_state, key: h.xkb_keycode_t) callconv(.c) h.xkb_keysym_t,
     xkb_keysym_to_utf32: *const fn (keysym: h.xkb_keysym_t) callconv(.c) u32,
+    xkb_state_key_get_layout: *const fn (state: ?*h.struct_xkb_state, key: h.xkb_keycode_t) callconv(.c) h.xkb_layout_index_t,
+    xkb_keymap_key_get_syms_by_level: *const fn (keymap: ?*h.struct_xkb_keymap, key: h.xkb_keycode_t, layout: h.xkb_layout_index_t, level: h.xkb_level_index_t, syms_out: [*c][*c]const h.xkb_keysym_t) callconv(.c) c_int,
     xkb_compose_table_new_from_locale: *const fn (context: ?*h.struct_xkb_context, locale: [*c]const u8, flags: h.enum_xkb_compose_compile_flags) callconv(.c) ?*h.struct_xkb_compose_table,
     xkb_compose_table_unref: *const fn (table: ?*h.struct_xkb_compose_table) callconv(.c) void,
     xkb_compose_state_new: *const fn (table: ?*h.struct_xkb_compose_table, flags: h.enum_xkb_compose_state_flags) callconv(.c) ?*h.struct_xkb_compose_state,
@@ -809,8 +812,7 @@ pub const Window = struct {
 
     fn pushKeyEvent(self: *Window, key: u32, comptime event: wio.EventType) void {
         if (keyToButton(key)) |button| {
-            const button_event: wio.Button.Event = .{ .button = button, .modifiers = globals.modifiers };
-            internal.sendInput(self.event_fn_data, &self.last_modifiers, globals.modifiers, @unionInit(wio.Event, @tagName(event), button_event));
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, globals.modifiers, @unionInit(wio.Event, @tagName(event), keyButtonEvent(button, key)));
         }
 
         if (self.text_options) |_| {
@@ -1120,6 +1122,24 @@ const HeldModifierKey = struct {
     modifiers: wio.Modifiers = .{},
 };
 
+fn keyButtonEvent(button: wio.Button, key: u32) wio.Button.Event {
+    return .{
+        .button = button,
+        .modifiers = globals.modifiers,
+        .char = layoutChar(key, 0),
+        .shifted_char = layoutChar(key, 1),
+    };
+}
+
+fn layoutChar(key: u32, level: h.xkb_level_index_t) u21 {
+    if (globals.xkb_state == null) return 0;
+    const layout = c.xkb_state_key_get_layout(globals.xkb_state, key + 8);
+    if (layout == h.XKB_LAYOUT_INVALID) return 0;
+    var syms: [*c]const h.xkb_keysym_t = undefined;
+    if (c.xkb_keymap_key_get_syms_by_level(globals.keymap, key + 8, layout, level, &syms) != 1) return 0;
+    return keysym.toChar(syms[0], c.xkb_keysym_to_utf32(syms[0]));
+}
+
 fn holdModifier(key: u32, down: bool) void {
     for (&globals.held_modifier_keys) |*held| {
         if (held.key == key) held.* = .{};
@@ -1175,7 +1195,7 @@ fn keyboardKey(_: ?*anyopaque, _: ?*h.wl_keyboard, serial: u32, _: u32, key: u32
             }
         } else {
             if (keyToButton(key)) |button| {
-                internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .button_release = .{ .button = button, .modifiers = globals.modifiers } });
+                internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .button_release = keyButtonEvent(button, key) });
             }
             if (key == globals.repeat_key) {
                 globals.repeat_key = 0;
