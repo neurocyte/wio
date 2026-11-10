@@ -2013,7 +2013,7 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
             const delta: f32 = @floatFromInt(HISHORT(wParam));
             const value = delta / w.WHEEL_DELTA;
             const modifiers = currentModifiers();
-            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, if (msg == w.WM_MOUSEWHEEL) .{ .scroll_vertical = .{ .delta = -value, .modifiers = modifiers } } else .{ .scroll_horizontal = .{ .delta = value, .modifiers = modifiers } });
+            internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, if (msg == w.WM_MOUSEWHEEL) .{ .scroll_vertical = .{ .delta = -value, .modifiers = modifiers, .unit = .steps } } else .{ .scroll_horizontal = .{ .delta = value, .modifiers = modifiers, .unit = .steps } });
             return 0;
         },
         w.WM_POINTERDOWN, w.WM_POINTERUPDATE => {

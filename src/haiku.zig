@@ -620,8 +620,8 @@ export fn wioMouseRelative(self: *Window, x: i16, y: i16, mods: u32) void {
 
 export fn wioScroll(self: *Window, vertical: f32, horizontal: f32, mods: u32) void {
     const modifiers = decodeModifiers(mods);
-    if (vertical != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = vertical, .modifiers = modifiers } });
-    if (horizontal != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = horizontal, .modifiers = modifiers } });
+    if (vertical != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = vertical, .modifiers = modifiers, .unit = .steps } });
+    if (horizontal != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = horizontal, .modifiers = modifiers, .unit = .steps } });
 }
 
 fn wioDropPosition(self: *Window, x: i16, y: i16) callconv(.c) void {

@@ -730,8 +730,30 @@ pub const Event = union(enum) {
     };
 
     pub const Scroll = struct {
+        /// Negative is up or left.
         delta: f32,
         modifiers: Modifiers,
+        unit: Unit,
+        source: Source = .unknown,
+        phase: Phase = .move,
+
+        pub const Unit = enum {
+            /// 1.0 is one wheel notch. A high-resolution wheel or a
+            /// touchpad without pixel reporting sends fractions.
+            steps,
+            /// Logical pixels.
+            pixels,
+        };
+
+        pub const Source = enum { unknown, wheel, finger, continuous };
+
+        pub const Phase = enum {
+            move,
+            /// The fingers left the touchpad. `delta` is 0.
+            stop,
+            /// Motion that the OS generates after a stop (macOS).
+            momentum,
+        };
     };
 
     pub const Touch = struct {

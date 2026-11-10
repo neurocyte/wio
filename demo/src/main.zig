@@ -94,7 +94,7 @@ fn eventFn(data: ?*anyopaque, event: wio.Event) void {
         .button_release => |button| std.log.info("-{s} {s}", .{ @tagName(button.button), modifierString(button.modifiers) }),
         .mouse => |mouse| std.log.info("({},{}) {s}", .{ mouse.position.x, mouse.position.y, modifierString(mouse.modifiers) }),
         .mouse_relative => |mouse| std.log.info("{},{} {s}", .{ mouse.position.x, mouse.position.y, modifierString(mouse.modifiers) }),
-        .scroll_vertical, .scroll_horizontal => |scroll| std.log.info("{s} {d} {s}", .{ @tagName(event), scroll.delta, modifierString(scroll.modifiers) }),
+        .scroll_vertical, .scroll_horizontal => |scroll| std.log.info("{s} {d} {t} {t} {t} {s}", .{ @tagName(event), scroll.delta, scroll.unit, scroll.source, scroll.phase, modifierString(scroll.modifiers) }),
         .touch => |touch| std.log.info("touch {}: ({},{})", .{ touch.id, touch.x, touch.y }),
         .touch_end => |touch| std.log.info("touch {}: {s}", .{ touch.id, if (touch.ignore) "ignore" else "end" }),
         .gesture_zoom, .gesture_rotate => |value| std.log.info("{s} {}", .{ @tagName(event), value }),

@@ -197,8 +197,8 @@ class Wio {
             canvas.addEventListener("wheel", (event) => {
                 event.preventDefault();
                 const modifiers = this.updateModifiers(data, event);
-                if (event.deltaY !== 0) wioEvent(data, 22, 0, 0, event.deltaY, modifiers);
-                if (event.deltaX !== 0) wioEvent(data, 23, 0, 0, event.deltaX, modifiers);
+                if (event.deltaY !== 0) wioEvent(data, 22, event.deltaMode, 0, event.deltaY, modifiers);
+                if (event.deltaX !== 0) wioEvent(data, 23, event.deltaMode, 0, event.deltaX, modifiers);
             });
             canvas.addEventListener("dragover", (event) => {
                 event.preventDefault();

@@ -133,6 +133,8 @@ pub var globals: struct {
     held_modifier_keys: [8]HeldModifierKey = @splat(.{}),
     last_serial: u32 = 0,
     pointer_enter_serial: u32 = 0,
+    seat_version: u32 = 0,
+    axis_frame: AxisFrame = .{},
     repeat_period: i32 = 0,
     repeat_delay: i32 = undefined,
     repeat_key: u32 = 0,
@@ -926,7 +928,8 @@ fn registryGlobal(_: ?*anyopaque, registry: ?*h.wl_registry, name: u32, interfac
     } else if (build_options.framebuffer and std.mem.eql(u8, interface, "wl_shm")) {
         globals.shm = @ptrCast(h.wl_registry_bind(registry, name, &h.wl_shm_interface, @min(version, 1)));
     } else if (std.mem.eql(u8, interface, "wl_seat")) {
-        globals.seat = @ptrCast(h.wl_registry_bind(registry, name, &h.wl_seat_interface, @min(version, 4)));
+        globals.seat_version = @min(version, 8);
+        globals.seat = @ptrCast(h.wl_registry_bind(registry, name, &h.wl_seat_interface, globals.seat_version));
         _ = h.wl_seat_add_listener(globals.seat, &seat_listener, null);
     } else if (std.mem.eql(u8, interface, "wp_viewporter")) {
         globals.viewporter = @ptrCast(h.wl_registry_bind(registry, name, &h.wp_viewporter_interface, @min(version, 1)));
@@ -1225,6 +1228,33 @@ const pointer_listener: h.wl_pointer_listener = .{
     .motion = pointerMotion,
     .button = pointerButton,
     .axis = pointerAxis,
+    .frame = pointerFrame,
+    .axis_source = pointerAxisSource,
+    .axis_stop = pointerAxisStop,
+    .axis_discrete = pointerAxisDiscrete,
+    .axis_value120 = pointerAxisValue120,
+};
+
+/// Scroll state of one `wl_pointer.frame`, sent as events by `pointerFrame`.
+const AxisFrame = struct {
+    source: ?u32 = null,
+    axes: [2]Axis = @splat(.{}),
+
+    const Axis = struct {
+        value: f32 = 0,
+        discrete: i32 = 0,
+        value120: i32 = 0,
+        moved: bool = false,
+        stop: bool = false,
+    };
+
+    fn axis(self: *AxisFrame, value: u32) ?*Axis {
+        return switch (value) {
+            h.WL_POINTER_AXIS_VERTICAL_SCROLL => &self.axes[0],
+            h.WL_POINTER_AXIS_HORIZONTAL_SCROLL => &self.axes[1],
+            else => null,
+        };
+    }
 };
 
 fn pointerEnter(_: ?*anyopaque, _: ?*h.wl_pointer, serial: u32, surface: ?*h.wl_surface, _: h.wl_fixed_t, _: h.wl_fixed_t) callconv(.c) void {
@@ -1272,15 +1302,73 @@ fn pointerButton(_: ?*anyopaque, _: ?*h.wl_pointer, serial: u32, _: u32, button:
     }
 }
 
-fn pointerAxis(_: ?*anyopaque, _: ?*h.wl_pointer, _: u32, axis: h.wl_pointer_axis, value: h.wl_fixed_t) callconv(.c) void {
-    if (globals.pointer_focus) |window| {
-        const float = fixedToFloat(value);
-        switch (axis) {
-            h.WL_POINTER_AXIS_VERTICAL_SCROLL => internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_vertical = .{ .delta = float, .modifiers = globals.modifiers } }),
-            h.WL_POINTER_AXIS_HORIZONTAL_SCROLL => internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_horizontal = .{ .delta = float, .modifiers = globals.modifiers } }),
-            else => {},
+fn pointerAxis(_: ?*anyopaque, _: ?*h.wl_pointer, _: u32, axis: u32, value: h.wl_fixed_t) callconv(.c) void {
+    if (globals.seat_version < h.WL_POINTER_FRAME_SINCE_VERSION) {
+        // no frame events, so send each value as it comes
+        if (globals.pointer_focus) |window| {
+            sendScroll(window, axis, .{ .delta = fixedToFloat(value), .modifiers = globals.modifiers, .unit = .pixels });
+        }
+        return;
+    }
+    const state = globals.axis_frame.axis(axis) orelse return;
+    state.value += fixedToFloat(value);
+    state.moved = true;
+}
+
+fn pointerAxisSource(_: ?*anyopaque, _: ?*h.wl_pointer, source: u32) callconv(.c) void {
+    globals.axis_frame.source = source;
+}
+
+fn pointerAxisStop(_: ?*anyopaque, _: ?*h.wl_pointer, _: u32, axis: u32) callconv(.c) void {
+    const state = globals.axis_frame.axis(axis) orelse return;
+    state.stop = true;
+}
+
+fn pointerAxisDiscrete(_: ?*anyopaque, _: ?*h.wl_pointer, axis: u32, discrete: i32) callconv(.c) void {
+    const state = globals.axis_frame.axis(axis) orelse return;
+    state.discrete += discrete;
+}
+
+fn pointerAxisValue120(_: ?*anyopaque, _: ?*h.wl_pointer, axis: u32, value120: i32) callconv(.c) void {
+    const state = globals.axis_frame.axis(axis) orelse return;
+    state.value120 += value120;
+}
+
+fn pointerFrame(_: ?*anyopaque, _: ?*h.wl_pointer) callconv(.c) void {
+    const frame = globals.axis_frame;
+    globals.axis_frame = .{};
+    const window = globals.pointer_focus orelse return;
+
+    const source: wio.Event.Scroll.Source = if (frame.source) |source| switch (source) {
+        h.WL_POINTER_AXIS_SOURCE_WHEEL, h.WL_POINTER_AXIS_SOURCE_WHEEL_TILT => .wheel,
+        h.WL_POINTER_AXIS_SOURCE_FINGER => .finger,
+        h.WL_POINTER_AXIS_SOURCE_CONTINUOUS => .continuous,
+        else => .unknown,
+    } else .unknown;
+    sendFrameAxes(window, frame, source);
+}
+
+fn sendFrameAxes(window: *Window, frame: AxisFrame, source: wio.Event.Scroll.Source) void {
+    for (frame.axes, [_]u32{ h.WL_POINTER_AXIS_VERTICAL_SCROLL, h.WL_POINTER_AXIS_HORIZONTAL_SCROLL }) |state, axis| {
+        if (state.value120 != 0 and source == .wheel) {
+            sendScroll(window, axis, .{ .delta = @as(f32, @floatFromInt(state.value120)) / 120, .modifiers = globals.modifiers, .unit = .steps, .source = source });
+        } else if (state.discrete != 0 and source == .wheel) {
+            sendScroll(window, axis, .{ .delta = @floatFromInt(state.discrete), .modifiers = globals.modifiers, .unit = .steps, .source = source });
+        } else if (state.moved and state.value != 0) {
+            sendScroll(window, axis, .{ .delta = state.value, .modifiers = globals.modifiers, .unit = .pixels, .source = source });
+        }
+        if (state.stop) {
+            sendScroll(window, axis, .{ .delta = 0, .modifiers = globals.modifiers, .unit = .pixels, .source = source, .phase = .stop });
         }
     }
+}
+
+fn sendScroll(window: *Window, axis: u32, scroll: wio.Event.Scroll) void {
+    internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, switch (axis) {
+        h.WL_POINTER_AXIS_VERTICAL_SCROLL => .{ .scroll_vertical = scroll },
+        h.WL_POINTER_AXIS_HORIZONTAL_SCROLL => .{ .scroll_horizontal = scroll },
+        else => return,
+    });
 }
 
 const relative_pointer_listener: h.zwp_relative_pointer_v1_listener = .{
@@ -1320,10 +1408,10 @@ fn gesturePinchBegin(_: ?*anyopaque, _: ?*h.zwp_pointer_gesture_pinch_v1, _: u32
 fn gesturePinchUpdate(_: ?*anyopaque, _: ?*h.zwp_pointer_gesture_pinch_v1, _: u32, dx: h.wl_fixed_t, dy: h.wl_fixed_t, scale: h.wl_fixed_t, rotation: h.wl_fixed_t) callconv(.c) void {
     if (globals.gesture_focus) |window| {
         if (dx != 0) {
-            internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_horizontal = .{ .delta = -fixedToFloat(dx), .modifiers = globals.modifiers } });
+            internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_horizontal = .{ .delta = -fixedToFloat(dx), .modifiers = globals.modifiers, .unit = .pixels, .source = .finger } });
         }
         if (dy != 0) {
-            internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_vertical = .{ .delta = -fixedToFloat(dy), .modifiers = globals.modifiers } });
+            internal.sendInput(window.event_fn_data, &window.last_modifiers, globals.modifiers, .{ .scroll_vertical = .{ .delta = -fixedToFloat(dy), .modifiers = globals.modifiers, .unit = .pixels, .source = .finger } });
         }
         if (scale != 0) {
             internal.sendEvent(window.event_fn_data, .{ .gesture_zoom = fixedToFloat(scale) });
@@ -1350,6 +1438,8 @@ const touch_listener: h.wl_touch_listener = .{
     .motion = touchMotion,
     .frame = touchFrame,
     .cancel = touchCancel,
+    .shape = touchShape,
+    .orientation = touchOrientation,
 };
 
 fn touchDown(_: ?*anyopaque, _: ?*h.wl_touch, serial: u32, _: u32, surface: ?*h.wl_surface, id: i32, x: h.wl_fixed_t, y: h.wl_fixed_t) callconv(.c) void {
@@ -1390,6 +1480,10 @@ fn touchMotion(_: ?*anyopaque, _: ?*h.wl_touch, _: u32, id: i32, x: h.wl_fixed_t
 }
 
 fn touchFrame(_: ?*anyopaque, _: ?*h.wl_touch) callconv(.c) void {}
+
+fn touchShape(_: ?*anyopaque, _: ?*h.wl_touch, _: i32, _: h.wl_fixed_t, _: h.wl_fixed_t) callconv(.c) void {}
+
+fn touchOrientation(_: ?*anyopaque, _: ?*h.wl_touch, _: i32, _: h.wl_fixed_t) callconv(.c) void {}
 
 fn touchCancel(_: ?*anyopaque, _: ?*h.wl_touch) callconv(.c) void {
     var iter = globals.touch_info.valueIterator();

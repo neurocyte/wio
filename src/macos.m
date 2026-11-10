@@ -24,7 +24,7 @@ extern void wioButtonRelease(void *, uint8_t, uint32_t);
 extern void wioMouse(void *, int16_t, int16_t, uint32_t);
 extern void wioMouseRelative(void *, int16_t, int16_t, uint32_t);
 extern void wioMouseLeave(void *);
-extern void wioScroll(void *, float, float, uint32_t);
+extern void wioScroll(void *, float, float, uint32_t, uint8_t, uint8_t);
 extern void wioGestureZoom(void *, float);
 extern void wioGestureRotate(void *, float);
 extern char *wioDupeClipboardText(const char *, size_t *);
@@ -460,7 +460,14 @@ static UInt16 physicalKeyCode(NSEvent *event) {
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    wioScroll(zig, [event scrollingDeltaX], [event scrollingDeltaY], [event modifierFlags]);
+    // 0 move, 1 stop, 2 momentum
+    uint8_t phase = 0;
+    if ([event momentumPhase] != NSEventPhaseNone) {
+        phase = 2;
+    } else if ([event phase] & (NSEventPhaseEnded | NSEventPhaseCancelled)) {
+        phase = 1;
+    }
+    wioScroll(zig, [event scrollingDeltaX], [event scrollingDeltaY], [event modifierFlags], [event hasPreciseScrollingDeltas], phase);
 }
 
 - (void)handleMagnificationGesture:(NSMagnificationGestureRecognizer *)gestureRecognizer {

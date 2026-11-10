@@ -368,6 +368,11 @@ fn decodeModifiers(bits: u32) wio.Modifiers {
     };
 }
 
+/// WheelEvent.deltaMode: 0 pixels, 1 lines, 2 pages (one step per page).
+fn wheelUnit(delta_mode: u32) wio.Event.Scroll.Unit {
+    return if (delta_mode == 0) .pixels else .steps;
+}
+
 export fn wioEvent(data: ?*anyopaque, event: u32, int0: u32, int1: u32, float0: f32, mods: u32) void {
     const modifiers = decodeModifiers(mods);
     internal.sendEvent(data, switch (@as(wio.EventType, @fromBackingInt(@intCast(event)))) {
@@ -388,8 +393,8 @@ export fn wioEvent(data: ?*anyopaque, event: u32, int0: u32, int1: u32, float0: 
         .mouse => .{ .mouse = .{ .position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) }, .modifiers = modifiers } },
         .mouse_relative => .{ .mouse_relative = .{ .position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) }, .modifiers = modifiers } },
         .mouse_leave => .mouse_leave,
-        .scroll_vertical => .{ .scroll_vertical = .{ .delta = float0, .modifiers = modifiers } },
-        .scroll_horizontal => .{ .scroll_horizontal = .{ .delta = float0, .modifiers = modifiers } },
+        .scroll_vertical => .{ .scroll_vertical = .{ .delta = float0, .modifiers = modifiers, .unit = wheelUnit(int0) } },
+        .scroll_horizontal => .{ .scroll_horizontal = .{ .delta = float0, .modifiers = modifiers, .unit = wheelUnit(int0) } },
         .drop_position => .{ .drop_position = .{ .x = @truncate(@as(i32, @bitCast(int0))), .y = @truncate(@as(i32, @bitCast(int1))) } },
         .drop_end => .drop_end,
         else => unreachable,

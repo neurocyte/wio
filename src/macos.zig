@@ -192,6 +192,8 @@ pub fn openUri(uri: []const u8) void {
 
 pub const Window = struct {
     last_modifiers: wio.Modifiers = .{},
+    /// Axes that moved since the last scroll stop, horizontal and vertical.
+    scroll_moved: [2]bool = .{ false, false },
     event_fn_data: ?*anyopaque,
     window: *NSWindow,
     link: ?*CADisplayLink = null,
@@ -987,10 +989,34 @@ export fn wioMouseLeave(self: *Window) void {
     internal.sendEvent(self.event_fn_data, .mouse_leave);
 }
 
-export fn wioScroll(self: *Window, x: f32, y: f32, modifiers: u32) void {
+export fn wioScroll(self: *Window, x: f32, y: f32, modifiers: u32, precise: u8, phase: u8) void {
     const mods = decodeModifiers(modifiers);
-    if (x != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_horizontal = .{ .delta = -x, .modifiers = mods } });
-    if (y != 0) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_vertical = .{ .delta = -y, .modifiers = mods } });
+    var scroll: wio.Event.Scroll = .{
+        .delta = 0,
+        .modifiers = mods,
+        .unit = if (precise != 0) .pixels else .steps,
+        .source = if (precise != 0) .finger else .wheel,
+        .phase = if (phase == 2) .momentum else .move,
+    };
+    if (x != 0) {
+        if (scroll.phase == .move) self.scroll_moved[0] = true;
+        scroll.delta = -x;
+        internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_horizontal = scroll });
+    }
+    if (y != 0) {
+        if (scroll.phase == .move) self.scroll_moved[1] = true;
+        scroll.delta = -y;
+        internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_vertical = scroll });
+    }
+    if (phase == 1) {
+        // the stop phase has no axis, so stop each axis that moved
+        scroll.delta = 0;
+        scroll.phase = .stop;
+        if (!self.scroll_moved[0] and !self.scroll_moved[1]) self.scroll_moved[1] = true;
+        if (self.scroll_moved[0]) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_horizontal = scroll });
+        if (self.scroll_moved[1]) internal.sendInput(self.event_fn_data, &self.last_modifiers, mods, .{ .scroll_vertical = scroll });
+        self.scroll_moved = .{ false, false };
+    }
 }
 
 export fn wioGestureZoom(self: *Window, value: f32) void {

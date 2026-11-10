@@ -775,8 +775,8 @@ const native = struct {
     }
 
     fn pushScrollEvent(_: *c.JNIEnv, _: c.jobject, vertical: c.jfloat, horizontal: c.jfloat) callconv(.c) void {
-        if (vertical != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = -vertical, .modifiers = modifiers } });
-        if (horizontal != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = -horizontal, .modifiers = modifiers } });
+        if (vertical != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_vertical = .{ .delta = -vertical, .modifiers = modifiers, .unit = .steps } });
+        if (horizontal != 0) internal.sendInput(event_fn_data, &last_modifiers, modifiers, .{ .scroll_horizontal = .{ .delta = -horizontal, .modifiers = modifiers, .unit = .steps } });
     }
 
     fn onKeyDown(_: *c.JNIEnv, _: c.jobject, id: c.jint, keycode: c.jint, repeat: c.jint) callconv(.c) c.jboolean {
