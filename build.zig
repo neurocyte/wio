@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) !void {
     const enable_joystick = b.option(bool, "enable_joystick", "Enable joystick support (default: false)") orelse false;
     const enable_audio = b.option(bool, "enable_audio", "Enable audio support (default: false)") orelse false;
     const win32_manifest = b.option(bool, "win32_manifest", "Embed application manifest (default: true)") orelse true;
-    const macos_sdk_path = b.option([]const u8, "macos_sdk_path", "Path to the macOS SDK");
+    const macos_sdk_path = b.option([]const u8, "macos_sdk_path", "Path to the macOS SDK (default: bundled wio_macos_sdk)");
     const unix_backends = b.option([]const u8, "unix_backends", "List of enabled backends (default: x11,wayland)") orelse "x11,wayland";
 
     var enable_x11 = false;
@@ -92,6 +92,13 @@ pub fn build(b: *std.Build) !void {
             }
         },
         .macos => {
+            const macos_sdk: ?std.Build.LazyPath = if (macos_sdk_path) |sdk|
+                .{ .cwd_relative = sdk }
+            else if (b.lazyDependency("wio_macos_sdk", .{})) |dep|
+                dep.path("")
+            else
+                null;
+
             if (b.lazyImport(@This(), "translate_c")) |translate_c| {
                 const translate_c_dep = b.dependency("translate_c", .{});
 
@@ -111,8 +118,8 @@ pub fn build(b: *std.Build) !void {
                     .default_init = true,
                 });
 
-                if (macos_sdk_path) |sdk| {
-                    translator.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" }) });
+                if (macos_sdk) |sdk| {
+                    translator.addSystemFrameworkPath(sdk.path(b, "System/Library/Frameworks"));
                 }
 
                 module.addImport("c", translator.mod);
@@ -120,10 +127,10 @@ pub fn build(b: *std.Build) !void {
 
             module.addCSourceFile(.{ .file = b.path("src/macos.m"), .flags = &.{ "-fobjc-arc", "-Wno-deprecated-declarations" } });
 
-            if (macos_sdk_path) |sdk| {
-                module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" }) });
-                module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr", "include" }) });
-                module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr", "lib" }) });
+            if (macos_sdk) |sdk| {
+                module.addSystemFrameworkPath(sdk.path(b, "System/Library/Frameworks"));
+                module.addSystemIncludePath(sdk.path(b, "usr/include"));
+                module.addLibraryPath(sdk.path(b, "usr/lib"));
             }
 
             module.linkFramework("Cocoa", .{});

@@ -9,6 +9,11 @@
             .hash = "win32-0.0.0-4XUubb9uBQOcYvhdop7yU6qYUoeUiL0vbKhkw8loOCLL",
             .lazy = true,
         },
+        .wio_macos_sdk = .{
+            .url = "https://github.com/ypsvlq/wio-macos-sdk/archive/1014fff9b544bf80200a2a9a92af257451286913.tar.gz",
+            .hash = "wio_macos_sdk-15.5.0-Q4Y7wxqRsAE1ifcDVRYPyFChElssvep3qd5-A_fPS5Jp",
+            .lazy = true,
+        },
         .wio_unix_headers = .{
             .url = "git+https://github.com/ypsvlq/wio-unix-headers#779f0441362aa6e860dd182f658df9f271299ff5",
             .hash = "wio_unix_headers-0.0.0-seffXMQzQgA4LzxSC2seoGVn7nfVwIIHqYhVsm_Kes-2",
