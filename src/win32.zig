@@ -531,7 +531,10 @@ pub const Window = struct {
         self.releaseIfUp(&self.left_alt, w.VK_LMENU, .left_alt);
         self.releaseIfUp(&self.right_alt, w.VK_RMENU, .right_alt);
         if (!self.right_alt) altgr = false;
-        const modifiers = currentModifiers();
+        self.setModifiers(currentModifiers());
+    }
+
+    fn setModifiers(self: *Window, modifiers: wio.Modifiers) void {
         if (!std.meta.eql(self.last_modifiers, modifiers)) {
             self.last_modifiers = modifiers;
             internal.sendEvent(self.event_fn_data, .{ .modifiers = modifiers });
@@ -1790,7 +1793,7 @@ fn windowProc(window: w.HWND, msg: u32, wParam: w.WPARAM, lParam: w.LPARAM) call
         },
         w.WM_KILLFOCUS => {
             internal.sendEvent(self.event_fn_data, .unfocused);
-            internal.sendEvent(self.event_fn_data, .{ .modifiers = .{} });
+            self.setModifiers(.{});
             return 0;
         },
         w.WM_PAINT => {
