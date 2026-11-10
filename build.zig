@@ -103,16 +103,28 @@ pub fn build(b: *std.Build) !void {
                 const translate_c_dep = b.dependency("translate_c", .{});
 
                 const translator: translate_c.Translator = .init(translate_c_dep, .{
-                    .c_source_file = b.addWriteFiles().add("cimport.c",
-                        \\#include <CoreGraphics/CoreGraphics.h>
-                        \\#include <OpenGL/OpenGL.h>
-                        \\#include <dlfcn.h>
-                        \\#include <IOKit/hid/IOHIDLib.h>
-                        \\#include <CoreAudio/CoreAudio.h>
-                        \\#include <AudioUnit/AudioUnit.h>
-                        \\#include <AudioToolbox/AudioToolbox.h>
-                        \\
-                    ),
+                    .c_source_file = b.addWriteFiles().add("cimport.c", b.fmt(
+                        "{s}{s}{s}",
+                        .{
+                            \\#include <CoreGraphics/CoreGraphics.h>
+                            \\#include <OpenGL/OpenGL.h>
+                            \\#include <dlfcn.h>
+                            \\
+                            ,
+                            if (enable_joystick)
+                                \\#include <IOKit/hid/IOHIDLib.h>
+                                \\
+                            else
+                                "",
+                            if (enable_audio)
+                                \\#include <CoreAudio/CoreAudio.h>
+                                \\#include <AudioUnit/AudioUnit.h>
+                                \\#include <AudioToolbox/AudioToolbox.h>
+                                \\
+                            else
+                                "",
+                        },
+                    )),
                     .target = target,
                     .optimize = optimize,
                     .default_init = true,
