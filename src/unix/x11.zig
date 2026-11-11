@@ -593,7 +593,10 @@ pub const Window = struct {
         };
 
         const cursor = if (maybe_name) |name| c.XcursorLibraryLoadCursor(globals.display, name) else self.createBlankCursor();
-        defer _ = c.XFreeCursor(globals.display, cursor);
+        // XcursorLibraryLoadCursor returns None if the theme has no cursor of that name
+        defer if (cursor != h.None) {
+            _ = c.XFreeCursor(globals.display, cursor);
+        };
 
         _ = c.XDefineCursor(globals.display, self.window, cursor);
     }
